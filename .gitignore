@@ -18,6 +18,6 @@ media_to_test/
 # Downloaded or generated binaries and models
 models/
 lib/*.dll
-corpus/
+/corpus/
 *.keystore
 *.jks
