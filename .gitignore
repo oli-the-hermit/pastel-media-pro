@@ -11,3 +11,13 @@ target/
 .env
 .env.*
 *.log
+
+# Real media for local testing (copyrighted, never committed)
+media_to_test/
+
+# Downloaded or generated binaries and models
+models/
+lib/*.dll
+corpus/
+*.keystore
+*.jks
