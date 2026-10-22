@@ -11,7 +11,7 @@ import { useAppearance } from './theme';
 
 const NAV_ITEMS: NavRailItem[] = PAGES.map(({ key, icon }) => ({ key, label: strings.pages[key].label, icon }));
 // A placeholder mark until the logo is designed.
-const BRAND = { mark: <IconPlay size={18} />, name: strings.app.name };
+const BRAND = { mark: <IconPlay size={16} />, name: strings.app.name };
 const PROFILE = { name: strings.account.defaultName };
 
 /** The main window: Focus Space's shell from the design system, around the media pages. */

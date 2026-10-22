@@ -11,10 +11,10 @@ export interface Page {
 
 /** The pages in the drawer's order. Their names and empty texts are in strings.pages. */
 export const PAGES: Page[] = [
-  { key: 'home', icon: <IconHome size={20} /> },
-  { key: 'music', icon: <IconMusic size={20} /> },
-  { key: 'movies', icon: <IconFileVideo size={20} /> },
-  { key: 'series', icon: <IconMonitor size={20} /> },
-  { key: 'playlists', icon: <IconQueue size={20} /> },
-  { key: 'subtitles', icon: <IconCaptions size={20} /> },
+  { key: 'home', icon: <IconHome size={21} /> },
+  { key: 'music', icon: <IconMusic size={21} /> },
+  { key: 'movies', icon: <IconFileVideo size={21} /> },
+  { key: 'series', icon: <IconMonitor size={21} /> },
+  { key: 'playlists', icon: <IconQueue size={21} /> },
+  { key: 'subtitles', icon: <IconCaptions size={21} /> },
 ];
