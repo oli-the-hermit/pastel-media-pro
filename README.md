@@ -30,6 +30,19 @@ dependencies installed (the link brings none of them, and the Geist font comes f
 | `npm run check` | Types, ESLint, Stylelint, the tests and a production build |
 | `npm run corpus` | Generates a synthetic media test corpus into `corpus/` with ffmpeg |
 
+## Continuous integration
+
+`.github/workflows/check.yml` runs `npm run check` and the Rust tests on Windows for every push
+and pull request. While the design system's repository is private, CI checks it out beside this
+one with a read-only token:
+
+1. On GitHub, create a fine-grained personal access token with access to `pastel-studio-ds`
+   only, and the repository permission **Contents: Read-only**.
+2. In this repository's **Settings → Secrets and variables → Actions**, add it as
+   `DESIGN_SYSTEM_TOKEN`.
+
+CI checks out the design system's `main`, so changes the app needs there must be pushed first.
+
 ## Layout
 
 - `apps/player`: the desktop app (Tauri 2, React, Vite); its Rust side is in `apps/player/src-tauri`.
