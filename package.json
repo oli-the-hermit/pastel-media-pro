@@ -1,0 +1,47 @@
+{
+  "name": "pastel-media-pro",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A local media player for audio and video, built on the Pastel Studio design system.",
+  "license": "MIT",
+  "author": "San Milano",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @pastel-media/player",
+    "desktop": "npm run desktop -w @pastel-media/player",
+    "desktop:build": "npm run desktop:build -w @pastel-media/player",
+    "desktop:test-build": "npm run desktop:test-build -w @pastel-media/player",
+    "build": "npm run build -w @pastel-media/player",
+    "typecheck": "tsc -p apps/player --noEmit",
+    "lint": "eslint .",
+    "lint:css": "stylelint \"apps/*/src/**/*.css\" \"packages/*/src/**/*.css\" --allow-empty-input",
+    "test": "vitest run",
+    "corpus": "node scripts/corpus/generate.ts",
+    "check": "npm run typecheck && npm run lint && npm run lint:css && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "jsdom": "^30.1.2",
+    "stylelint": "^17.15.0",
+    "stylelint-declaration-strict-value": "^1.12.1",
+    "typescript": "^5.2.2",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.4"
+  }
+}

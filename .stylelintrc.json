@@ -1,0 +1,122 @@
+{
+  "$comment": "Copied from the design system (pastel-studio-theme): every design value comes from @pastel-studio/tokens (--ps-*). The app styles only its own classes: ps-* classes belong to the library.",
+  "plugins": [
+    "stylelint-declaration-strict-value"
+  ],
+  "ignoreFiles": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "**/src-tauri/**"
+  ],
+  "rules": {
+    "color-no-hex": [
+      true,
+      {
+        "severity": "error",
+        "message": "Colors come from the theme tokens (--ps-surface-1, --ps-accent, …)."
+      }
+    ],
+    "function-disallowed-list": [
+      [
+        "rgb",
+        "rgba",
+        "hsl",
+        "hsla"
+      ],
+      {
+        "severity": "error",
+        "message": "Colors come from the theme tokens (--ps-surface-1, --ps-accent, …)."
+      }
+    ],
+    "scale-unlimited/declaration-strict-value": [
+      [
+        "/color$/",
+        "background",
+        "fill",
+        "stroke",
+        "font-size",
+        "font-weight",
+        "line-height",
+        "letter-spacing",
+        "border-radius",
+        "z-index",
+        "box-shadow",
+        "gap",
+        "row-gap",
+        "column-gap",
+        "padding",
+        "/^padding-/",
+        "margin",
+        "/^margin-/"
+      ],
+      {
+        "severity": "error",
+        "expandShorthand": true,
+        "ignoreFunctions": false,
+        "ignoreValues": {
+          "": [
+            "0",
+            "auto",
+            "inherit",
+            "initial",
+            "unset",
+            "none",
+            "normal",
+            "transparent",
+            "currentColor",
+            "currentcolor",
+            "/^-?\\d*\\.?\\d+%$/",
+            "/^calc\\(/",
+            "/^min\\(/",
+            "/^max\\(/",
+            "/^clamp\\(/",
+            "/^color-mix\\(/"
+          ],
+          "z-index": [
+            "0",
+            "auto",
+            "inherit",
+            "initial",
+            "unset",
+            "/^calc\\(/",
+            "/^[1-3]$/"
+          ],
+          "box-shadow": [
+            "0",
+            "none",
+            "inherit",
+            "initial",
+            "unset",
+            "inset",
+            "/^calc\\(/",
+            "/vmax$/"
+          ]
+        }
+      }
+    ],
+    "declaration-property-value-disallowed-list": [
+      {
+        "/^transition/": [
+          "/(^|[\\s,])\\d*\\.?\\d+m?s\\b/"
+        ],
+        "/^animation/": [
+          "/(^|[\\s,])\\d*\\.?\\d+m?s\\b/"
+        ],
+        "/.*/": [
+          "/var\\(\\s*--ps-(graphite|stone|lime|coral|amber|green|white)\\b/"
+        ]
+      },
+      {
+        "severity": "error",
+        "message": "Use the --ps-dur-* / --ps-ease-* motion tokens, and semantic color roles (not the reference palette)."
+      }
+    ],
+    "selector-class-pattern": [
+      "^(?!ps-)[a-z0-9]+(-[a-z0-9]+)*(--[a-z0-9]+(-[a-z0-9]+)*)?$",
+      {
+        "severity": "error",
+        "message": "Classes are kebab-case; ps-* classes belong to the design system (use the component, or give it a prop)."
+      }
+    ]
+  }
+}

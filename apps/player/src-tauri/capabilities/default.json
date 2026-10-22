@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window, served by the Vite dev server or the bundled UI (local origin).",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
