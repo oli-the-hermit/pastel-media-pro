@@ -32,17 +32,17 @@ jobs:
           exit 1
 
       # Side by side, as on a developer's machine: the app links ../pastel-studio-theme.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: pastel-media-pro
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: oli-the-hermit/pastel-studio-ds
           token: ${{ secrets.DESIGN_SYSTEM_TOKEN }}
           path: pastel-studio-theme
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm

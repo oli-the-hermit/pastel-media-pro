@@ -42,6 +42,8 @@ one with a read-only token:
    `DESIGN_SYSTEM_TOKEN`.
 
 CI checks out the design system's `main`, so changes the app needs there must be pushed first.
+If that checkout fails with "Bad credentials", the token was mistyped, has expired or was revoked:
+make a new one and replace the secret.
 
 ## Layout
 
