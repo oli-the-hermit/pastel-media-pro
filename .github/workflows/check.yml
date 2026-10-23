@@ -1,10 +1,8 @@
 # Runs the checks on every push and pull request: npm run check (types, ESLint, Stylelint, the
 # tests and a production build), then the Rust tests.
 #
-# The design system is linked with file: from its own repository beside this one, and that
-# repository is private for now. CI checks both out side by side, the design system with a
-# read-only token in the DESIGN_SYSTEM_TOKEN secret (see the README). Once it is public the
-# token can go.
+# The design system is linked with file: from its own repository beside this one, so CI checks
+# both out side by side, the design system at its main branch.
 name: Check
 
 on:
@@ -21,16 +19,7 @@ concurrency:
 jobs:
   check:
     runs-on: windows-latest
-    env:
-      HAS_DESIGN_SYSTEM_TOKEN: ${{ secrets.DESIGN_SYSTEM_TOKEN != '' }}
     steps:
-      - name: The design system can be checked out
-        if: env.HAS_DESIGN_SYSTEM_TOKEN != 'true'
-        shell: bash
-        run: |
-          echo "::error::The DESIGN_SYSTEM_TOKEN secret is missing: CI cannot check out the private design system (see the README)."
-          exit 1
-
       # Side by side, as on a developer's machine: the app links ../pastel-studio-theme.
       - uses: actions/checkout@v7
         with:
@@ -39,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: oli-the-hermit/pastel-studio-ds
-          token: ${{ secrets.DESIGN_SYSTEM_TOKEN }}
+          ref: main
           path: pastel-studio-theme
 
       - uses: actions/setup-node@v7
