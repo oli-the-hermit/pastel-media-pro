@@ -1,0 +1,15 @@
+/* The mini player window: the whole window is its drag region, the close button in its corner. */
+.mini {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--ps-surface-1);
+}
+
+.mini-close {
+  position: absolute;
+  top: var(--ps-space-8);
+  right: var(--ps-space-8);
+}
