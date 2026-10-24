@@ -1,0 +1,7 @@
+{
+  "productName": "Pastel Media Pro Test",
+  "identifier": "com.pastelmedia.player.test",
+  "bundle": {
+    "resources": { "../../../lib/libmpv-2.dll": "libmpv-2.dll" }
+  }
+}

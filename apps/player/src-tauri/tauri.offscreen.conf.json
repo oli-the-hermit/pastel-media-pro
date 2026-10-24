@@ -1,0 +1,21 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pastel Media Pro (automated test)",
+        "width": 1440,
+        "height": 900,
+        "x": -30000,
+        "y": -30000,
+        "center": false,
+        "focus": false,
+        "skipTaskbar": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "dragDropEnabled": false
+      }
+    ]
+  }
+}

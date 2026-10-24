@@ -10,3 +10,35 @@ body {
   background: var(--ps-bg);
   color: var(--ps-text-1);
 }
+
+/* While a video plays, mpv draws behind the page: the page is see-through where the picture is. */
+:root.mp-video-on body {
+  background: transparent;
+}
+
+.mp-video {
+  height: 100%;
+  --ps-media-backdrop: transparent;
+}
+
+.mp-video-hole {
+  width: 100%;
+  height: 100%;
+}
+
+.mp-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-16);
+}
+
+.mp-note {
+  margin: 0;
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-text-3);
+}
+
+.mp-heading {
+  margin: 0;
+  font-size: var(--ps-font-size-xl);
+}

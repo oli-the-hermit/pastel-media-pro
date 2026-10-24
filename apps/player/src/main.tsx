@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { CrashBoundary } from '@pastel-studio/react';
 import '@pastel-studio/react/styles.css';
+import '@pastel-media/media-ui/styles.css';
 import './app.css';
 import { App } from './App';
 import { MINI_WINDOW_HASH } from './desktop';

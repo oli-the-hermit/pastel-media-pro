@@ -45,4 +45,27 @@ export const strings = {
     windowTitle: 'Pastel Media Pro · Mini player',
     empty: 'The mini player will live here.',
   },
+  library: {
+    reading: 'Reading the test library…',
+    /** A dev build's note on the media pages: where the test files come from. */
+    testFolder: (root: string) => `Test library: ${root}`,
+  },
+  music: {
+    albums: 'Albums',
+    allAlbums: 'All albums',
+    unknownArtist: 'Unknown artist',
+    noAlbum: 'Songs without an album',
+    unplayableMark: '(no audio)',
+    albumSubtitle: (artist: string, songs: number) => `${artist} · ${songs === 1 ? '1 song' : `${songs} songs`}`,
+  },
+  videos: {
+    allSeries: 'All series',
+    episodeOf: (season: number | null, episode: number | null) =>
+      [season != null ? `Season ${season}` : '', episode != null ? `Episode ${episode}` : ''].filter(Boolean).join(' · '),
+    episodes: (n: number) => (n === 1 ? '1 episode' : `${n} episodes`),
+  },
+  playback: {
+    unplayable: 'This song has no audio the player can read.',
+    failed: (reason: string) => `This file could not be played: ${reason}`,
+  },
 } as const;

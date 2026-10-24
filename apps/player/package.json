@@ -13,9 +13,11 @@
     "tauri": "tauri",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
-    "desktop:test-build": "tauri build --debug --no-bundle --config src-tauri/tauri.test.conf.json"
+    "desktop:test-build": "tauri build --debug --no-bundle --config src-tauri/tauri.test.conf.json",
+    "desktop:build:test-media": "tauri build --features test-media --config src-tauri/tauri.test-media.conf.json"
   },
   "dependencies": {
+    "@pastel-media/media-ui": "0.0.0",
     "@pastel-studio/react": "file:../../../pastel-studio-theme/packages/react",
     "@pastel-studio/tokens": "file:../../../pastel-studio-theme/packages/tokens",
     "@tauri-apps/api": "^2.11.1",
