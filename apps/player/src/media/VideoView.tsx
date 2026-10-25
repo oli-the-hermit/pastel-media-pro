@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { VideoPlayer } from '@pastel-studio/react';
+import { isTauri } from '../desktop';
 import { engine } from './engine';
 import { usePlayback } from './playback';
 
@@ -14,18 +15,25 @@ function hex(cssColor: string): string {
 }
 
 /**
- * The playing video. mpv draws the picture behind the transparent page; the player's empty middle is a
- * hole, and mpv is told where it is as margins of the window (spike S7).
+ * The playing video. The picture is drawn behind the transparent page; the player's empty middle is a hole.
+ * In the desktop app mpv is told where it is as margins of the window (spike S7); in the browser the
+ * playback's video element is moved into the hole's box.
  */
 export function VideoView() {
   const playback = usePlayback();
   const hole = useRef<HTMLDivElement>(null);
   const video = playback.video;
+  const { setVideoBox } = playback;
 
   useEffect(() => {
     document.documentElement.classList.add('mp-video-on');
+    const native = isTauri();
     const apply = () => {
       const r = hole.current?.getBoundingClientRect();
+      if (!native) {
+        setVideoBox(r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null);
+        return;
+      }
       const w = window.innerWidth;
       const h = window.innerHeight;
       const m = r ? [r.left / w, 1 - r.right / w, r.top / h, 1 - r.bottom / h] : [0, 0, 0, 0];
@@ -40,8 +48,9 @@ export function VideoView() {
       ro.disconnect();
       window.removeEventListener('resize', apply);
       document.documentElement.classList.remove('mp-video-on');
+      if (!native) setVideoBox(null);
     };
-  }, []);
+  }, [setVideoBox]);
 
   if (!video) return null;
   return (

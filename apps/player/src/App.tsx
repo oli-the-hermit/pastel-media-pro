@@ -60,7 +60,8 @@ function Main() {
   const { error, clearError } = playback;
   useEffect(() => {
     if (!error) return;
-    showToast(error === 'unplayable' ? strings.playback.unplayable : strings.playback.failed(error), 'error');
+    const words: Record<string, string> = { unplayable: strings.playback.unplayable, browser: strings.playback.browser };
+    showToast(words[error] ?? strings.playback.failed(error), 'error');
     clearError();
   }, [error, clearError, showToast]);
 

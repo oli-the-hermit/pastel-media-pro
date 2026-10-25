@@ -66,6 +66,7 @@ export const strings = {
   },
   playback: {
     unplayable: 'This song has no audio the player can read.',
+    browser: "This browser can't play this file. The desktop app can.",
     failed: (reason: string) => `This file could not be played: ${reason}`,
   },
 } as const;

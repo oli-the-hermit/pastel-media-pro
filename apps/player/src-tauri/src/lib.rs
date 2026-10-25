@@ -1,8 +1,8 @@
 use tauri::{Manager, WindowEvent};
 
 mod engine;
-mod library;
-mod parse;
+pub mod library;
+pub mod parse;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

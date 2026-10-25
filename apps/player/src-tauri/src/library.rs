@@ -146,7 +146,8 @@ fn read_track(path: &Path) -> Option<(LibTrack, String)> {
     Some((track, if album_artist.is_empty() { artist } else { album_artist }))
 }
 
-fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
+/// Reads a folder: the songs grouped into albums, the videos into movies and series, and for each album the files its cover may come from.
+pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
     let started = std::time::Instant::now();
     let (mut audio, mut video) = (vec![], vec![]);
     for e in WalkDir::new(root).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
@@ -240,6 +241,15 @@ fn cover_bytes(files: &[PathBuf]) -> Option<Vec<u8>> {
     std::fs::read(found.path()).ok()
 }
 
+/// An album's cover as a 256 px JPEG: its first embedded picture, or a cover image in its folder.
+pub fn cover_thumbnail(files: &[PathBuf]) -> Option<Vec<u8>> {
+    let img = image::load_from_memory(&cover_bytes(files)?).ok()?;
+    let thumb = image::DynamicImage::ImageRgb8(img.thumbnail(256, 256).to_rgb8());
+    let mut out = vec![];
+    thumb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82)).ok()?;
+    Some(out)
+}
+
 /// An album's cover as a small JPEG data URL (256 px), or nothing. Made once per album.
 #[tauri::command]
 pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: String) -> Result<Option<String>, String> {
@@ -248,11 +258,7 @@ pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: Stri
     }
     let files = state.cover_sources.lock().unwrap().get(&album_id).cloned().unwrap_or_default();
     let url = tauri::async_runtime::spawn_blocking(move || {
-        let img = image::load_from_memory(&cover_bytes(&files)?).ok()?;
-        let thumb = image::DynamicImage::ImageRgb8(img.thumbnail(256, 256).to_rgb8());
-        let mut out = vec![];
-        thumb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82)).ok()?;
-        Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(out)))
+        cover_thumbnail(&files).map(|jpg| format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpg)))
     })
     .await
     .map_err(|e| e.to_string())?;

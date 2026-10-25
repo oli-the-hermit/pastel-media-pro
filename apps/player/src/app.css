@@ -21,6 +21,24 @@ body {
   --ps-media-backdrop: transparent;
 }
 
+/* The app sits in a positioned layer after the browser's video element, so it paints above it. */
+.mp-app-layer {
+  position: relative;
+  height: 100%;
+}
+
+/* The browser's picture: one video element behind the page, moved into the player's see-through middle. */
+.mp-web-video {
+  display: none;
+  position: fixed;
+  object-fit: contain;
+  background: var(--ps-bg);
+}
+
+.mp-web-video.is-shown {
+  display: block;
+}
+
 .mp-video-hole {
   width: 100%;
   height: 100%;

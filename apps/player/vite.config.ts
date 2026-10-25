@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, searchForWorkspaceRoot } from 'vite';
 import react from '@vitejs/plugin-react';
+import { testMedia } from './test-media';
 
 // The design system is linked with file: from its own repo beside this one (see the README).
 const designSystem = fileURLToPath(new URL('../../../pastel-studio-theme', import.meta.url));
@@ -8,7 +9,8 @@ const designSystem = fileURLToPath(new URL('../../../pastel-studio-theme', impor
 export default defineConfig({
   // Relative asset paths, so the bundled UI loads inside the Tauri window.
   base: './',
-  plugins: [react()],
+  // testMedia: the dev server's test library for the web version (dev only).
+  plugins: [react(), testMedia()],
   // The library brings its own React from its repo: one copy, or hooks break.
   resolve: { dedupe: ['react', 'react-dom'] },
   server: {

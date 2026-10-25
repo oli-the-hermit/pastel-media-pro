@@ -35,6 +35,8 @@ async function main() {
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
+  // The harness shows the shell's empty pages, not the local test library (apps/player/test-media.ts).
+  process.env.PASTEL_TEST_MEDIA = 'off';
   const vite = await createServer({ root: PLAYER, logLevel: 'error', server: { port: PORT, strictPort: true, open: false } });
   await vite.listen();
   const browser = await chromium.launch({ channel: 'chrome', headless: true });

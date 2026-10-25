@@ -6,6 +6,13 @@ authors = ["San Milano"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.80"
+default-run = "pastel-media-pro"
+
+# The web version's dev server reads the test library through this (see apps/player/test-media.ts).
+[[bin]]
+name = "library-export"
+path = "src/bin/library-export.rs"
+required-features = ["test-media"]
 
 [lib]
 name = "app_lib"
