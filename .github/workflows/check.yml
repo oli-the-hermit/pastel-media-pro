@@ -1,0 +1,64 @@
+# Runs the checks on every push and pull request: npm run check (types, ESLint, Stylelint, the
+# tests and a production build), then the Rust tests.
+#
+# The design system is linked with file: from its own repository beside this one, so CI checks
+# both out side by side, the design system at its main branch.
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      # Side by side, as on a developer's machine: the app links ../pastel-studio-theme.
+      - uses: actions/checkout@v7
+        with:
+          path: pastel-media-pro
+
+      - uses: actions/checkout@v7
+        with:
+          repository: oli-the-hermit/pastel-studio-ds
+          ref: main
+          path: pastel-studio-theme
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            pastel-media-pro/package-lock.json
+            pastel-studio-theme/package-lock.json
+
+      # The link brings none of the design system's own dependencies (React types, the font).
+      - name: Install the design system
+        working-directory: pastel-studio-theme
+        run: npm ci
+
+      - name: Install
+        working-directory: pastel-media-pro
+        run: npm ci
+
+      - name: npm run check
+        working-directory: pastel-media-pro
+        run: npm run check
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pastel-media-pro/apps/player/src-tauri
+
+      # Tauri embeds the built UI (apps/player/dist, made by npm run check above).
+      - name: Rust tests
+        working-directory: pastel-media-pro/apps/player/src-tauri
+        run: cargo test

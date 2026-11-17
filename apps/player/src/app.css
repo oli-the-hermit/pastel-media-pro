@@ -1,0 +1,12 @@
+/* The window is transparent (the video engine draws behind the page), so the page paints its own background. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ps-bg);
+  color: var(--ps-text-1);
+}
