@@ -27,11 +27,11 @@ function VideoTiles({ videos, label, subtitle }: { videos: LibVideo[]; label: st
 
 /** Movies: every video the parser read as a film. */
 export function MoviesPage({ library }: { library: Library }) {
-  if (library.movies.length === 0) return <EmptyState>{strings.pages.movies.empty}</EmptyState>;
+  if (library.movies.length === 0) return <EmptyState>{strings.streaming.views.movies.empty}</EmptyState>;
   return (
     <div className="mp-page">
       <p className="mp-note">{strings.library.testFolder(library.root)}</p>
-      <VideoTiles videos={library.movies} label={strings.pages.movies.label} subtitle={(v) => (v.year ? String(v.year) : undefined)} />
+      <VideoTiles videos={library.movies} label={strings.streaming.views.movies.label} subtitle={(v) => (v.year ? String(v.year) : undefined)} />
     </div>
   );
 }
@@ -40,7 +40,7 @@ export function MoviesPage({ library }: { library: Library }) {
 export function SeriesPage({ library }: { library: Library }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const open = library.series.find((s) => s.id === openId);
-  if (library.series.length === 0) return <EmptyState>{strings.pages.series.empty}</EmptyState>;
+  if (library.series.length === 0) return <EmptyState>{strings.streaming.views.series.empty}</EmptyState>;
   if (open) {
     return (
       <div className="mp-page">
@@ -55,7 +55,7 @@ export function SeriesPage({ library }: { library: Library }) {
   return (
     <div className="mp-page">
       <p className="mp-note">{strings.library.testFolder(library.root)}</p>
-      <MediaGrid aria-label={strings.pages.series.label}>
+      <MediaGrid aria-label={strings.streaming.views.series.label}>
         {library.series.map((s) => (
           <div role="listitem" key={s.id}>
             <MediaTile shape="poster" title={s.title} subtitle={strings.videos.episodes(s.episodes.length)} icon={<IconMonitor size={32} />} onClick={() => setOpenId(s.id)} />

@@ -17,6 +17,8 @@
   flex-direction: column;
   gap: var(--ps-space-4);
   min-width: 0;
+  /* A button is as wide as its text: fill the grid cell instead, so every tile in a row is the same size. */
+  width: calc(100% + 2 * var(--ps-space-8));
   padding: var(--ps-space-8);
   margin: calc(-1 * var(--ps-space-8));
   border: 0;

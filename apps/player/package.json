@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@pastel-media/media-ui": "0.0.0",
+    "@pastel-studio/desktop": "file:../../../pastel-studio-theme/packages/desktop",
     "@pastel-studio/react": "file:../../../pastel-studio-theme/packages/react",
     "@pastel-studio/tokens": "file:../../../pastel-studio-theme/packages/tokens",
     "@tauri-apps/api": "^2.11.1",

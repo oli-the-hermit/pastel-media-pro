@@ -5,9 +5,10 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaElement, type MediaController } from '@pastel-studio/react';
-import { isTauri } from '../desktop';
+import { isDesktop } from '@pastel-studio/desktop';
 import { engine, useEngine } from './engine';
 import type { LibTrack, LibVideo } from './library';
+import type { Opened } from './opened';
 
 /** Where the picture goes on the page, in CSS pixels; `null` when no video shows. */
 export type VideoBox = { left: number; top: number; width: number; height: number } | null;
@@ -22,6 +23,11 @@ export interface Playback {
   error: string | null;
   playTracks: (tracks: LibTrack[], index: number) => void;
   playVideo: (video: LibVideo) => void;
+  /**
+   * Files the system handed the app play at once (D16): a video when the first file is one, otherwise the songs
+   * among them as the queue. (A queue of videos comes with the player's queue.)
+   */
+  playOpened: (items: Opened[]) => void;
   next: () => void;
   previous: () => void;
   /** Stops and leaves the video, if one is playing. */
@@ -92,7 +98,7 @@ const playableFrom = (tracks: LibTrack[], start: number, step: 1 | -1) => {
 };
 
 export function PlaybackProvider({ children }: { children: React.ReactNode }) {
-  const native = isTauri();
+  const native = isDesktop();
   const videoEl = useRef<HTMLVideoElement>(null);
   const [queue, setQueue] = useState<LibTrack[]>([]);
   const [index, setIndex] = useState(-1);
@@ -142,6 +148,16 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     [load],
   );
 
+  const playOpened = useCallback(
+    (items: Opened[]) => {
+      const first = items[0];
+      if (!first) return;
+      if (first.kind === 'video') playVideo(first);
+      else playTracks(items.filter((i): i is Opened & { kind: 'audio' } => i.kind === 'audio'), 0);
+    },
+    [playVideo, playTracks],
+  );
+
   const stop = useCallback(() => {
     stopFile();
     setVideo(null);
@@ -167,13 +183,14 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       error,
       playTracks,
       playVideo,
+      playOpened,
       next: () => step(1),
       previous: () => step(-1),
       stop,
       clearError: () => setError(null),
       setVideoBox,
     }),
-    [media, queue, index, video, error, playTracks, playVideo, step, stop],
+    [media, queue, index, video, error, playTracks, playVideo, playOpened, step, stop],
   );
   const shown = !!video && !!box;
   return (

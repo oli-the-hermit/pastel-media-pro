@@ -1,11 +1,12 @@
 /**
  * The test library a dev build reads from `media_to_test`: in the desktop app through the Rust side
  * (`library.rs`), in the browser from the dev server (`apps/player/test-media.ts`, same scanner, files as URLs).
- * Any other build gets an empty library and the pages keep their empty states.
+ * Any other build gets an empty library and the pages keep their empty states. It is read the first time a page
+ * needs it, never at launch, so opening a file stays instant (D16).
  */
 import { useEffect, useState } from 'react';
 import type { Album, Track } from '@pastel-studio/react';
-import { isTauri } from '../desktop';
+import { isDesktop } from '@pastel-studio/desktop';
 import { strings } from '../strings';
 
 export interface LibTrack {
@@ -79,13 +80,20 @@ async function fetchWebLibrary(): Promise<Library> {
   return lib;
 }
 
-/** The library, read once; `null` while it loads. */
-export function useLibrary(): Library | null {
-  const [library, setLibrary] = useState<Library | null>(isTauri() || WEB_TEST_MEDIA ? null : EMPTY_LIBRARY);
+/**
+ * The library, read once, the first time `needed` is true (a page that shows it opened); `null` until then and
+ * while it loads.
+ */
+export function useLibrary(needed: boolean): Library | null {
+  const source = isDesktop() ? 'desktop' : WEB_TEST_MEDIA ? 'web' : 'none';
+  const [library, setLibrary] = useState<Library | null>(source === 'none' ? EMPTY_LIBRARY : null);
+  const [asked, setAsked] = useState(false);
+  if (needed && !asked) setAsked(true);
   useEffect(() => {
-    if (isTauri()) invoke<Library>('library_get').then(setLibrary, () => setLibrary(EMPTY_LIBRARY));
-    else if (WEB_TEST_MEDIA) fetchWebLibrary().then(setLibrary, () => setLibrary(EMPTY_LIBRARY));
-  }, []);
+    if (!asked) return;
+    if (source === 'desktop') invoke<Library>('library_get').then(setLibrary, () => setLibrary(EMPTY_LIBRARY));
+    else if (source === 'web') fetchWebLibrary().then(setLibrary, () => setLibrary(EMPTY_LIBRARY));
+  }, [asked, source]);
   return library;
 }
 
@@ -95,7 +103,7 @@ const covers = new Map<string, Promise<string | undefined>>();
 export function useCover(albumId: string): string | undefined {
   const [cover, setCover] = useState<string | undefined>();
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isDesktop()) {
       setCover(webCovers.get(albumId));
       return;
     }

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { closeMini, findMini, isTauri, openMini } from '../desktop';
+import { isDesktop } from '@pastel-studio/desktop';
+import { closeMini, findMini, openMini } from '../desktop';
 import { strings } from '../strings';
 
 /** The mini player window: desktop only, opened and closed from the top bar. */
 export function useMiniWindow() {
-  const supported = isTauri();
+  const supported = isDesktop();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {

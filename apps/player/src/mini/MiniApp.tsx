@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { EmptyState, IconClose, WindowButton, useLabels, useThemeSync } from '@pastel-studio/react';
-import { closeWindow } from '../desktop';
+import { closeWindow } from '@pastel-studio/desktop';
 import { strings } from '../strings';
 import { themeStore } from '../theme';
 import './mini.css';

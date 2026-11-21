@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { INITIAL_MEDIA_STATE, type MediaController, type MediaState } from '@pastel-studio/react';
-import { isTauri } from '../desktop';
+import { isDesktop } from '@pastel-studio/desktop';
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return (await import('@tauri-apps/api/core')).invoke<T>(cmd, args);
@@ -59,7 +59,7 @@ function toState(s: EngineStatus): MediaState {
 export function useEngine(): Engine {
   const [status, setStatus] = useState<EngineStatus>({ ready: false });
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop()) return;
     let alive = true;
     const tick = async () => {
       try {

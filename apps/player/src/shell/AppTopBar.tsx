@@ -1,11 +1,7 @@
 import { IconButton, IconHelp, IconMiniPlayer, TopBar } from '@pastel-studio/react';
-import { isTauri } from '../desktop';
+import { DesktopWindowControls, DRAG_REGION, isDesktop } from '@pastel-studio/desktop';
 import { strings } from '../strings';
-import { AppWindowControls } from './AppWindowControls';
 import { useMiniWindow } from './useMiniWindow';
-
-// Tauri moves the window from the pressed element only, so the bar spreads this on its free parts.
-const DRAG_REGION = { 'data-tauri-drag-region': true };
 
 interface AppTopBarProps {
   title: string;
@@ -17,7 +13,7 @@ interface AppTopBarProps {
  * title bar. The status slot stays empty until something plays (the now-playing chip).
  */
 export function AppTopBar({ title, onOpenHelp }: AppTopBarProps) {
-  const desktop = isTauri();
+  const desktop = isDesktop();
   const mini = useMiniWindow();
   return (
     <TopBar
@@ -35,7 +31,7 @@ export function AppTopBar({ title, onOpenHelp }: AppTopBarProps) {
           </IconButton>
         </>
       }
-      windowControls={desktop ? <AppWindowControls /> : undefined}
+      windowControls={desktop ? <DesktopWindowControls /> : undefined}
     />
   );
 }

@@ -60,3 +60,26 @@ body {
   margin: 0;
   font-size: var(--ps-font-size-xl);
 }
+
+.mp-streaming,
+.mp-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-24);
+}
+
+.mp-streaming > :first-child {
+  align-self: flex-start;
+}
+
+/* The empty player: its sentence, then one way to open files. */
+.mp-player-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ps-space-16);
+}
+
+.mp-player-empty p {
+  margin: 0;
+}

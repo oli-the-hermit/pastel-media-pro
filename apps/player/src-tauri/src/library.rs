@@ -1,7 +1,8 @@
 //! The test library: in a build with the `test-media` feature, the repo's `media_to_test` folder (or
-//! `PASTEL_TEST_MEDIA`) is scanned at start and shown on the media pages. Read-only; nothing is written to it.
+//! `PASTEL_TEST_MEDIA`) is scanned when a media page first opens (never at launch, D16) and shown there. Read-only; nothing is written to it.
 //! The real library (folders the user picks, SQLite, rescans) is Phase 3; this follows spike S6.
 
+use crate::formats::{self, MediaKind};
 use crate::parse::{self, Kind};
 use base64::Engine as _;
 use lofty::config::{ParseOptions, ParsingMode};
@@ -16,11 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use walkdir::WalkDir;
 
-const AUDIO: &[&str] = &["mp3", "m4a", "flac", "ogg", "opus", "wav", "wma", "aac", "aiff", "ape", "wv", "oga"];
-const VIDEO: &[&str] = &["mp4", "mkv", "avi", "mov", "webm", "ts", "m4v", "wmv", "flv", "mpg", "mpeg"];
 const FOLDER_COVERS: &[&str] = &["cover.jpg", "folder.jpg", "front.jpg", "album.jpg", "cover.png", "folder.png"];
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LibTrack {
     pub id: String,
@@ -47,7 +46,7 @@ pub struct LibAlbum {
     pub track_ids: Vec<String>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LibVideo {
     pub id: String,
@@ -120,7 +119,8 @@ fn number(tf: &TaggedFile, get: impl Fn(&Tag) -> Option<u32>) -> Option<u32> {
     tf.tags().iter().find_map(get)
 }
 
-fn read_track(path: &Path) -> Option<(LibTrack, String)> {
+/// One song's tags and length (cover art skipped), and its album artist; `None` if the file has no readable tags.
+pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
     let opts = ParseOptions::new().read_cover_art(false);
     let (tf, unplayable) = match Probe::open(path).ok()?.options(opts).read() {
         Ok(tf) => (tf, false),
@@ -151,11 +151,10 @@ pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
     let started = std::time::Instant::now();
     let (mut audio, mut video) = (vec![], vec![]);
     for e in WalkDir::new(root).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
-        let ext = e.path().extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
-        if AUDIO.contains(&ext.as_str()) {
-            audio.push(e.path().to_path_buf());
-        } else if VIDEO.contains(&ext.as_str()) {
-            video.push(e.path().to_path_buf());
+        match formats::kind_of(e.path()) {
+            Some(MediaKind::Audio) => audio.push(e.path().to_path_buf()),
+            Some(MediaKind::Video) => video.push(e.path().to_path_buf()),
+            None => {}
         }
     }
 

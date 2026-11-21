@@ -96,7 +96,7 @@ async function main() {
       for (const [i, [key, { label }]] of Object.entries(strings.pages).entries()) {
         await shot(theme, `1${i}-page-${key}`, () => goTo(label));
       }
-      await goTo(strings.pages.home.label);
+      await goTo(strings.pages.player.label);
       await page.mouse.move(0, 0);
 
       // ── The account menu and its views ──
@@ -107,11 +107,11 @@ async function main() {
       await shot(theme, '22-appearance', openView(strings.account.appearance));
       await shot(theme, '23-appearance-vibrant', () => pickAccent(LIBRARY.vibrant));
       await closeDialog();
-      await shot(theme, '24-home-vibrant');
+      await shot(theme, '24-player-vibrant');
       await openView(strings.account.appearance)();
       await shot(theme, '25-appearance-muted', () => pickAccent(LIBRARY.muted));
       await closeDialog();
-      await shot(theme, '26-home-muted');
+      await shot(theme, '26-player-muted');
       await openView(strings.account.appearance)();
       await pickAccent(LIBRARY.base);
       await closeDialog();

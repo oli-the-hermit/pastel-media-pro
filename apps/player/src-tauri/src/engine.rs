@@ -47,6 +47,10 @@ mod mpv {
                 if let Ok(log) = std::env::var("PASTEL_MPV_LOG") {
                     opt("log-file", &log);
                 }
+                // PASTEL_MPV_MUTE=1 starts muted: automated runs of the desktop build make no sound.
+                if std::env::var_os("PASTEL_MPV_MUTE").is_some() {
+                    opt("mute", "yes");
+                }
                 for (k, v) in [
                     ("vo", "gpu-next"),
                     ("gpu-context", "d3d11"),
@@ -182,10 +186,11 @@ pub fn start(app: &AppHandle) {
 
 // The commands are async, so they run off the window's thread: mpv's embedded window needs that thread free.
 
-/// Plays a file. Only files inside the test library may be opened (`library::allowed`).
+/// Plays a file. Only files the system handed the app (`open::is_allowed`) or inside the test library
+/// (`library::allowed`) may be opened: the page can't name any other path.
 #[tauri::command]
-pub async fn engine_load(app: AppHandle, engine: State<'_, Engine>, path: String) -> Result<(), String> {
-    if !crate::library::allowed(&path) {
+pub async fn engine_load(app: AppHandle, engine: State<'_, Engine>, opened: State<'_, crate::open::OpenState>, path: String) -> Result<(), String> {
+    if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&path) {
         return Err("this file is outside the library".into());
     }
     #[cfg(windows)]
@@ -213,7 +218,7 @@ pub async fn engine_load(app: AppHandle, engine: State<'_, Engine>, path: String
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, engine);
+        let _ = (app, engine, opened);
         Err("playback is Windows-only for now".into())
     }
 }

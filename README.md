@@ -8,9 +8,10 @@ with nothing leaving the computer. It is built on the
 [Pastel Studio design system](https://github.com/oli-the-hermit/pastel-studio-ds), the same base
 as [Focus Space](https://github.com/oli-the-hermit/Focus-Space).
 
-> **Status: in development, phase 0 (the foundation).** The app opens to its shell (navigation,
-> the account menu, Appearance with light, dark and 32 accent colours, Settings) around empty
-> pages. Nothing plays yet.
+> **Status: in development, phase 2 (open a file, it plays).** The app opens on its player. A file
+> opened from Windows ("Open with", a double-click, a drop on the window) plays at once in the
+> built-in player, and several files become one queue. The Music and Streaming pages show a local
+> test folder in development builds; the real library and its import come in phase 3.
 
 ## Setup
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { VideoPlayer } from '@pastel-studio/react';
-import { isTauri } from '../desktop';
+import { isDesktop } from '@pastel-studio/desktop';
 import { engine } from './engine';
 import { usePlayback } from './playback';
 
@@ -27,7 +27,7 @@ export function VideoView() {
 
   useEffect(() => {
     document.documentElement.classList.add('mp-video-on');
-    const native = isTauri();
+    const native = isDesktop();
     const apply = () => {
       const r = hole.current?.getBoundingClientRect();
       if (!native) {
