@@ -23,6 +23,7 @@
     "lint": "eslint .",
     "lint:css": "stylelint \"apps/*/src/**/*.css\" \"packages/*/src/**/*.css\" --allow-empty-input",
     "test": "vitest run",
+    "visual:install": "node scripts/visual/browser.ts --install",
     "visual:capture": "node scripts/visual/capture.ts",
     "visual:baseline": "node scripts/visual/capture.ts --out documentation/visual/baseline",
     "visual:diff": "node scripts/visual/diff.ts",

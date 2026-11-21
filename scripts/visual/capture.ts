@@ -1,7 +1,7 @@
 /**
  * Visual capture of the app (Focus Space's harness, for Media Pro's shell).
  *
- * Starts the player's Vite, drives the installed Chrome through the shell with reduced motion,
+ * Starts the player's Vite, drives Playwright's Chromium (`npm run visual:install`, once) through the shell with reduced motion,
  * and writes one PNG per view and theme. The theme follows the emulated system, as on a first
  * run. Compare two runs with `npm run visual:diff`.
  *
@@ -11,9 +11,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Page } from 'playwright-core';
+import type { Page } from 'playwright-core';
 import { createServer } from 'vite';
 import { strings } from '../../apps/player/src/strings.ts';
+import { launchChromium } from './browser.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PLAYER = path.join(ROOT, 'apps/player');
@@ -39,7 +40,7 @@ async function main() {
   process.env.PASTEL_TEST_MEDIA = 'off';
   const vite = await createServer({ root: PLAYER, logLevel: 'error', server: { port: PORT, strictPort: true, open: false } });
   await vite.listen();
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await launchChromium();
   const failures: string[] = [];
   let count = 0;
   let checks = 0;
