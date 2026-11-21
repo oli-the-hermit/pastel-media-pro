@@ -6,7 +6,9 @@ import { buildHooks, hooksPath, readLists, TARGETS } from './gen-hooks';
 describe('installer hooks', () => {
   it('are up to date with media-extensions.json (run node scripts/installer/gen-hooks.ts)', () => {
     const lists = readLists();
-    for (const t of TARGETS) expect(readFileSync(hooksPath(t), 'utf8')).toBe(buildHooks(lists, t));
+    // Line endings aside: a Windows checkout may turn them into CRLF.
+    const lf = (text: string) => text.replace(/\r\n/g, '\n');
+    for (const t of TARGETS) expect(lf(readFileSync(hooksPath(t), 'utf8'))).toBe(buildHooks(lists, t));
   });
 
   it('offer the app for every type without taking any default, and remove exactly what they add', () => {
