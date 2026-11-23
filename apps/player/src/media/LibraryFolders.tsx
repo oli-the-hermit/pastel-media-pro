@@ -44,7 +44,8 @@ export function LibraryFoldersSettings() {
   return (
     <div className="mp-settings">
       <Field label={strings.library.foldersLabel} hint={strings.library.foldersHint} group>
-        {folders.length > 0 && (
+        {/* `undefined`, never `false`: the design system's Field counts `false` as a child and crashes on it. */}
+        {folders.length === 0 ? undefined : (
           <ul className="mp-folders">
             {folders.map((f) => (
               <li key={f}>
