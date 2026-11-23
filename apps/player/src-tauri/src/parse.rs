@@ -16,6 +16,8 @@ pub struct Parsed {
     pub year: Option<u16>,
     pub season: Option<u32>,
     pub episode: Option<u32>,
+    /// An episode's own title, when the name gives one ("Show - S01E02 - Title").
+    pub episode_title: Option<String>,
 }
 
 macro_rules! re {
@@ -26,17 +28,20 @@ macro_rules! re {
 
 re!(SXXEXX, r"(?i)\bS(\d{1,2})[ ._-]?E(\d{1,3})(?:[ ._-]?(?:E|-E?)\d{1,3})?");
 re!(NXNN, r"(?i)\b(\d{1,2})x(\d{2,3})\b");
-re!(SEASON_EPISODE_WORDS, r"(?i)\bSeason[ ._-]*(\d{1,2})[ ._,-]*Episode[ ._-]*(\d{1,3})");
+re!(SEASON_EPISODE_WORDS, r"(?i)\b(?:Season|Temporada)[ ._-]*(\d{1,2})[ ._,-]*(?:Episode|Episodio|Cap[ií]tulo|Cap)[ ._-]*(\d{1,3})");
 re!(ANIME_DASH, r"^(.+?)\s+-\s+(\d{2,4})(?:v\d)?(?:\s|$|\[|\()");
 re!(YEAR_WORD, r"\b((?:19|20)\d{2})\b");
 re!(SINGLE_LETTERS, r"\b(?:[A-Za-z] ){2,}[A-Za-z]\b");
-re!(EP_WORD, r"(?i)^(.*?)\b(?:Episode|Ep)[ ._-]*(\d{1,3})\b");
+re!(EP_WORD, r"(?i)^(.*?)\b(?:Episode|Episodio|Ep|Cap[ií]tulo|Cap)[ ._-]*(\d{1,3})\b");
 re!(LEADING_NUMBER, r"^(\d{1,3})(?:\s*[-.]\s*|\s+)(\S.*)?$");
 re!(ONLY_NUMBER, r"^(\d{1,3})$");
 re!(GROUP_PREFIX, r"^\[([^\]]+)\]\s*");
 re!(TRAILING_HASH, r"\s*\[[0-9A-Fa-f]{8}\]\s*$");
 re!(BRACKETED, r"\[[^\]]*\]|\([^)]*\)");
-re!(SEASON_FOLDER, r"(?i)^(?:Season|Series|Staffel|Temporada)[ ._-]*(\d{1,2})$|^S(\d{1,2})$");
+re!(SEASON_FOLDER, r"(?i)^(?:Season|Series|Staffel|Temporada)[ ._-]*(\d{1,2})\b|^S(\d{1,2})$");
+// Words in release names after an episode number that are not its title: languages and streaming sources.
+re!(RELEASE_WORDS, r"(?i)\b(?:GERMAN|FRENCH|SPANISH|ITALIAN|LATINO|CASTELLANO|ESP|ENG|VOSE|SUBBED|DUBBED|DL|NF|AMZN|HMAX|DSNP|ATVP|iNTERNAL)\b");
+re!(TRAILING_SEASON, r"(?i)\s+(?:season|series|temporada|staffel)\s*\d{1,2}$|\s+s\d{1,2}$");
 re!(
     NOISE,
     r"(?i)\b(?:2160p|1080p|1080i|720p|576p|480p|4K|UHD|BluRay|BDRip|BRRip|BD|DVDRip|R2DVD|DVD|WEB-?DL|WEBRip|WEB|HDTV|HDRip|REMUX|REPACK|PROPER|EXTENDED|UNRATED|x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC\d?(?:\.\d)?|AC-?3|DTS(?:-HD)?|FLAC\d?(?:\.\d)?|DD\d(?:\.\d)?|5\.1|7\.1|10bit|Hi10p?|Hi10|35mm|Dual[ ._-]?Audio|Multi|YTS(?:\.\w+)?|YIFY|RARBG|Scan)\b"
@@ -90,25 +95,36 @@ fn clean_title(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The text after an episode number, up to the first release word: the episode's own title, if any.
+fn episode_title(rest: &str) -> Option<String> {
+    let cut = [NOISE.find(rest), RELEASE_WORDS.find(rest), TRAILING_HASH.find(rest)].into_iter().flatten().map(|m| m.start()).min().unwrap_or(rest.len());
+    let t = clean_title(&rest[..cut]);
+    (!t.is_empty() && !t.chars().all(|c| c.is_ascii_digit())).then_some(t)
+}
+
 fn parse_stem(stem: &str, season_hint: Option<u32>) -> Option<Parsed> {
     let no_group = GROUP_PREFIX.replace(stem, "").to_string();
     let s = separators(&no_group);
-    let mk = |title: &str, season: Option<u32>, ep: u32| Parsed {
+    let mk = |title: &str, season: Option<u32>, ep: u32, rest: &str| Parsed {
         kind: Kind::Episode,
         title: clean_title(title),
         year: None,
         season,
         episode: Some(ep),
+        episode_title: episode_title(rest),
     };
 
     if let Some(c) = SXXEXX.captures(&s) {
-        return Some(mk(&s[..c.get(0)?.start()], c[1].parse().ok(), c[2].parse().ok()?));
+        let m = c.get(0)?;
+        return Some(mk(&s[..m.start()], c[1].parse().ok(), c[2].parse().ok()?, &s[m.end()..]));
     }
     if let Some(c) = SEASON_EPISODE_WORDS.captures(&s) {
-        return Some(mk(&s[..c.get(0)?.start()], c[1].parse().ok(), c[2].parse().ok()?));
+        let m = c.get(0)?;
+        return Some(mk(&s[..m.start()], c[1].parse().ok(), c[2].parse().ok()?, &s[m.end()..]));
     }
     if let Some(c) = NXNN.captures(&s) {
-        return Some(mk(&s[..c.get(0)?.start()], c[1].parse().ok(), c[2].parse().ok()?));
+        let m = c.get(0)?;
+        return Some(mk(&s[..m.start()], c[1].parse().ok(), c[2].parse().ok()?, &s[m.end()..]));
     }
     // Anime releases: "Title - 05 (...)", only when the group tag or the dash form is explicit
     if let Some(c) = ANIME_DASH.captures(&s) {
@@ -116,16 +132,16 @@ fn parse_stem(stem: &str, season_hint: Option<u32>) -> Option<Parsed> {
         let n: u32 = c[2].parse().ok()?;
         let year_like = c[2].len() == 4 && (1900..=2027).contains(&n); // "Movie - 2010" is a year, "One Piece - 1071" an episode
         if !year_like && (year_spans(&title).is_empty() || GROUP_PREFIX.is_match(stem)) {
-            return Some(mk(&title, season_hint, n));
+            return Some(mk(&title, season_hint, n, ""));
         }
     }
     if let Some(c) = EP_WORD.captures(&s) {
-        return Some(mk(&c[1], season_hint, c[2].parse().ok()?));
+        return Some(mk(&c[1], season_hint, c[2].parse().ok()?, &s[c.get(0)?.end()..]));
     }
     // A file inside a season folder: "03 - Title" or "03". The show is the folder's; the episode's own title is not kept.
     if season_hint.is_some() {
         if let Some(c) = ONLY_NUMBER.captures(&s).or_else(|| LEADING_NUMBER.captures(&s)) {
-            return Some(mk("", season_hint, c[1].parse().ok()?));
+            return Some(mk("", season_hint, c[1].parse().ok()?, c.get(2).map_or("", |m| m.as_str())));
         }
     }
     None
@@ -144,6 +160,7 @@ fn parse_movie(stem: &str) -> Parsed {
                 year: Some(year),
                 season: None,
                 episode: None,
+                episode_title: None,
             };
         }
     }
@@ -153,6 +170,7 @@ fn parse_movie(stem: &str) -> Parsed {
         year: None,
         season: None,
         episode: None,
+        episode_title: None,
     }
 }
 
@@ -197,6 +215,27 @@ pub fn parse(rel: &str) -> Parsed {
         }
     }
     p
+}
+
+/// The show an episode belongs to, from its folders: the folder above its season folder ("Show/Season 1/…").
+pub fn show_folder(rel: &str) -> Option<String> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    let folders = &parts[..parts.len().saturating_sub(1)];
+    let i = folders.iter().rposition(|f| SEASON_FOLDER.is_match(f))?;
+    let show = parse_movie(folders.get(i.checked_sub(1)?)?);
+    (!is_generic(&show.title)).then_some(show.title)
+}
+
+/// What episodes of one show have in common however their files are named: lower case, letters and digits only,
+/// without a trailing year or season ("Mr.Robot", "Mr. Robot (2015)" and "Mr Robot Season 2" are one show).
+pub fn series_key(title: &str) -> String {
+    let t: String = title.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t = TRAILING_SEASON.replace(&t, "").to_string();
+    match t.rsplit_once(' ') {
+        Some((head, last)) if last.len() == 4 && (last.starts_with("19") || last.starts_with("20")) && last.chars().all(|c| c.is_ascii_digit()) => head.to_string(),
+        _ => t,
+    }
 }
 
 #[cfg(test)]
@@ -322,6 +361,11 @@ mod tests {
             e("Naruto Shippuden/Naruto Shippuden - 245.mkv", "Naruto Shippuden", None, 245),
             e("[Anime Time] 86 EIGHTY-SIX - 02.mkv", "86 EIGHTY-SIX", None, 2),
             e("One Piece - 1071.mkv", "One Piece", None, 1071),
+            // Spanish names
+            e("La Casa de Papel/Temporada 1/Capitulo 3.mkv", "La Casa de Papel", Some(1), 3),
+            e("El Ministerio del Tiempo Temporada 2 Capítulo 5.mkv", "El Ministerio del Tiempo", Some(2), 5),
+            e("Los Simpson - Cap 12.mkv", "Los Simpson", None, 12),
+            e("Breaking Bad/Temporada 2 [1080p]/02 - Grilled.mkv", "Breaking Bad", Some(2), 2),
             // Likely misses (kept on purpose, to know how bad)
             m("Spider-Man.Into.the.Spider-Verse.2018.mkv", "Spider-Man Into the Spider-Verse", Some(2018)),
             e("24.S01E05.mkv", "24", Some(1), 5),
@@ -337,6 +381,39 @@ mod tests {
             m("Pulp Fiction.mp4", "Pulp Fiction", None),
             m("FILM_0001.mp4", "FILM 0001", None),
         ]
+    }
+
+    #[test]
+    fn keeps_an_episode_s_own_title_but_not_release_words() {
+        let t = |p: &str| parse(p).episode_title;
+        assert_eq!(t("Breaking Bad - S05E14 - Ozymandias.mkv").as_deref(), Some("Ozymandias"));
+        assert_eq!(t("Game.of.Thrones.S08E06.The.Iron.Throne.1080p.mkv").as_deref(), Some("The Iron Throne"));
+        assert_eq!(t("The Wire/Season 3/03 - Dead Soldiers.mkv").as_deref(), Some("Dead Soldiers"));
+        assert_eq!(t("Friends 10x18 The Last One.avi").as_deref(), Some("The Last One"));
+        assert_eq!(t("Breaking.Bad.S01E02.720p.BluRay.x264-DEMAND.mkv"), None);
+        assert_eq!(t("Dark.S03E08.GERMAN.DL.1080p.mkv"), None);
+        assert_eq!(t("[SubsPlease] Frieren - 12 (1080p) [A1B2C3D4].mkv"), None);
+        assert_eq!(t("Pulp Fiction.mp4"), None);
+    }
+
+    #[test]
+    fn one_show_however_its_files_are_named() {
+        let k = |p: &str| series_key(&show_folder(p).unwrap_or_else(|| parse(p).title));
+        let shows = [
+            "Mr.Robot.S02E03.mkv",
+            "Mr. Robot - S01E01 - Pilot.mkv",
+            "Mr Robot (2015) S03E01.mkv",
+            "Mr.Robot.2015.S04E02.1080p.mkv",
+            "Mr Robot Season 2 S02E05.mkv",
+            "Mr. Robot/Season 1/01.mkv",
+            "Mr Robot (2015)/Temporada 3/Capitulo 2.mkv",
+        ];
+        for p in shows {
+            assert_eq!(k(p), "mr robot", "{p}");
+        }
+        assert_ne!(k("Doctor Who S01E01.mkv"), k("Doctor Foster S01E01.mkv"));
+        assert_eq!(show_folder("Breaking.Bad.S01E01.mkv"), None);
+        assert_eq!(show_folder("Series/Lost/Season 2/Lost.S02E01.mkv").as_deref(), Some("Lost"));
     }
 
     /// The known misses stay misses on purpose; anything else that breaks is a regression.

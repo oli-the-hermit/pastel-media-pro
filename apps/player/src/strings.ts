@@ -93,8 +93,20 @@ export const strings = {
   },
   videos: {
     allSeries: 'All series',
-    episodeOf: (season: number | null, episode: number | null) =>
-      [season != null ? `Season ${season}` : '', episode != null ? `Episode ${episode}` : ''].filter(Boolean).join(' · '),
+    allMovies: 'All films',
+    film: 'Film',
+    series: 'Series',
+    unknownSeries: 'Unknown series',
+    play: 'Play',
+    /** The series' Play button: the first episode of the season shown. */
+    playFrom: (season: number | null, episode: number | null) =>
+      `Play ${[season != null ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' ')}`.trim(),
+    season: (n: number | null) => (n == null ? 'Episodes' : n === 0 ? 'Specials' : `Season ${n}`),
+    seasons: (n: number) => (n === 1 ? '1 season' : `${n} seasons`),
+    seasonLabel: 'Season',
+    /** An episode row: its number, then its own title when the file name gives one. */
+    episodeRow: (episode: number | null, title: string | null) =>
+      [episode != null ? `Episode ${episode}` : 'Episode', title].filter(Boolean).join(' · '),
     episodes: (n: number) => (n === 1 ? '1 episode' : `${n} episodes`),
   },
   playback: {

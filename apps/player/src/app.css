@@ -109,3 +109,75 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A film's or a series' title page: the poster beside its name, facts and Play (an early Phase 5 details page). */
+.mp-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--ps-space-24);
+}
+
+.mp-title-poster {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 180px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-3);
+  color: var(--ps-text-3);
+}
+
+.mp-title-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+  min-width: 240px;
+}
+
+.mp-title-kind {
+  font-size: var(--ps-font-size-xs);
+  font-weight: var(--ps-font-weight-semibold);
+  color: var(--ps-text-3);
+  text-transform: uppercase;
+}
+
+.mp-title-name {
+  margin: 0;
+  font-size: var(--ps-font-size-3xl);
+  font-weight: var(--ps-font-weight-bold);
+  overflow-wrap: anywhere;
+}
+
+.mp-title-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-4) var(--ps-space-16);
+  margin: 0 0 var(--ps-space-8);
+  color: var(--ps-text-2);
+  overflow-wrap: anywhere;
+}
+
+.mp-episodes-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+}
+
+.mp-season-pick {
+  align-self: flex-start;
+  min-width: 200px;
+}
+
+.mp-heading-sm {
+  margin: 0;
+  font-size: var(--ps-font-size-lg);
+}
+
+.mp-episodes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+}

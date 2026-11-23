@@ -41,6 +41,8 @@ export interface LibVideo {
   year: number | null;
   season: number | null;
   episode: number | null;
+  /** An episode's own title, when its file name gives one. */
+  episodeTitle: string | null;
   fileName: string;
   path: string;
 }

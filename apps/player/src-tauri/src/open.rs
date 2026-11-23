@@ -107,6 +107,7 @@ fn describe(path: &Path, id: String) -> Option<Opened> {
                 year: parsed.year,
                 season: parsed.season,
                 episode: parsed.episode,
+                episode_title: parsed.episode_title,
                 file_name: name,
                 path: shown,
             }))

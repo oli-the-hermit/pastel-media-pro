@@ -57,6 +57,8 @@ pub struct LibVideo {
     pub year: Option<u16>,
     pub season: Option<u32>,
     pub episode: Option<u32>,
+    /// An episode's own title, when its file name gives one.
+    pub episode_title: Option<String>,
     pub file_name: String,
     pub path: String,
 }
@@ -273,8 +275,15 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
         lib.albums.push(album);
     }
 
-    // Videos: the parser says movie or episode; episodes group into series by title.
-    let mut series: BTreeMap<String, Vec<LibVideo>> = BTreeMap::new();
+    // Videos: the parser says movie or episode. Episodes group into series by the show's folder ("Show/Season 1/…")
+    // or else by their title, compared loosely (`parse::series_key`).
+    #[derive(Default)]
+    struct Show {
+        folder: Option<String>,
+        titles: Vec<String>,
+        episodes: Vec<LibVideo>,
+    }
+    let mut series: BTreeMap<String, Show> = BTreeMap::new();
     for (i, (root, p)) in video.iter().enumerate() {
         let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
         let parsed = parse::parse(&rel);
@@ -284,21 +293,41 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
             year: parsed.year,
             season: parsed.season,
             episode: parsed.episode,
+            episode_title: parsed.episode_title.clone(),
             file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
             path: p.to_string_lossy().to_string(),
         };
         match parsed.kind {
             Kind::Movie => lib.movies.push(v),
-            Kind::Episode => series.entry(parsed.title.to_lowercase()).or_default().push(v),
+            Kind::Episode => {
+                let folder = parse::show_folder(&rel);
+                let show = series.entry(parse::series_key(folder.as_deref().unwrap_or(&parsed.title))).or_default();
+                show.folder = show.folder.take().or(folder);
+                show.titles.push(parsed.title);
+                show.episodes.push(v);
+            }
         }
     }
     lib.movies.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()).then(a.year.cmp(&b.year)));
-    for (i, (_, mut eps)) in series.into_iter().enumerate() {
-        eps.sort_by_key(|e| (e.season.unwrap_or(0), e.episode.unwrap_or(0)));
-        lib.series.push(LibSeries { id: format!("s{i}"), title: eps[0].title.clone(), episodes: eps });
+    for (i, (_, mut show)) in series.into_iter().enumerate() {
+        show.episodes.sort_by(|a, b| (a.season.unwrap_or(0), a.episode.unwrap_or(0), &a.file_name).cmp(&(b.season.unwrap_or(0), b.episode.unwrap_or(0), &b.file_name)));
+        let title = show.folder.unwrap_or_else(|| most_common(&show.titles));
+        for e in &mut show.episodes {
+            e.title = title.clone();
+        }
+        lib.series.push(LibSeries { id: format!("s{i}"), title, episodes: show.episodes });
     }
     lib.scan_ms = started.elapsed().as_millis() as u64;
     (lib, sources)
+}
+
+/// The title most episodes use (the shortest of those that tie): "Mr. Robot" over a stray "Mr Robot Season 2".
+fn most_common(titles: &[String]) -> String {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for t in titles.iter().filter(|t| !t.is_empty()) {
+        *counts.entry(t.as_str()).or_default() += 1;
+    }
+    counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(b.0.len().cmp(&a.0.len())).then(b.0.cmp(a.0))).map(|(t, _)| t.to_string()).unwrap_or_default()
 }
 
 /// The library, read on the first call after a start or a change of folders (about 0.2 s for `media_to_test`).
@@ -372,6 +401,36 @@ mod tests {
         assert_eq!(with_folder(&both, music.join("Albums")), both);
         // A folder above both takes their place.
         assert_eq!(with_folder(&both, PathBuf::from(r"C:\Users\a")), vec![PathBuf::from(r"C:\Users\a")]);
+    }
+
+    #[test]
+    fn episodes_of_one_show_make_one_series_whatever_their_names() {
+        let root = std::env::temp_dir().join(format!("pmp-series-{}", std::process::id()));
+        let files = [
+            "Mr.Robot.S01E02.720p.mkv",
+            "Mr. Robot - S01E01 - Pilot.mkv",
+            "Mr Robot (2015) S02E01.mkv",
+            "Shows/Dark/Season 1/01 - Secrets.mkv",
+            "Shows/Dark/Season 1/Dark.S01E02.GERMAN.1080p.mkv",
+            "Shows/Dark/Temporada 2/Capitulo 1.mkv",
+            "Films/Heat (1995).mkv",
+        ];
+        for f in files {
+            let p = root.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"").unwrap();
+        }
+        let (lib, _) = scan(&root);
+        std::fs::remove_dir_all(&root).ok();
+
+        let shows: Vec<_> = lib.series.iter().map(|s| (s.title.as_str(), s.episodes.len())).collect();
+        assert_eq!(shows, vec![("Dark", 3), ("Mr Robot", 3)]);
+        let robot = &lib.series[1];
+        let order: Vec<_> = robot.episodes.iter().map(|e| (e.season, e.episode, e.episode_title.as_deref())).collect();
+        assert_eq!(order, vec![(Some(1), Some(1), Some("Pilot")), (Some(1), Some(2), None), (Some(2), Some(1), None)]);
+        assert!(robot.episodes.iter().all(|e| e.title == "Mr Robot"));
+        assert_eq!(lib.series[0].episodes[0].episode_title.as_deref(), Some("Secrets"));
+        assert_eq!(lib.movies.len(), 1);
     }
 
     #[test]
