@@ -1,6 +1,6 @@
 /**
- * The desktop (Tauri) side of the window: its buttons and the mini player window. Tauri's modules
- * are imported lazily, so the app in a plain browser never loads them.
+ * The mini player window. The main window's own calls (its buttons, `isDesktop`) come from the design system's
+ * `@pastel-studio/desktop`. Tauri's modules are imported lazily, so the app in a plain browser never loads them.
  */
 
 export const MINI_WINDOW_LABEL = 'mini';
@@ -9,31 +9,6 @@ export const MINI_WINDOW_HASH = '#mini';
 
 const MINI_WIDTH = 400;
 const MINI_HEIGHT = 152;
-
-export function isTauri(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-}
-
-const currentWindow = async () => (await import('@tauri-apps/api/window')).getCurrentWindow();
-
-export async function minimizeWindow(): Promise<void> {
-  await (await currentWindow()).minimize();
-}
-
-export async function toggleMaximizeWindow(): Promise<void> {
-  await (await currentWindow()).toggleMaximize();
-}
-
-export async function closeWindow(): Promise<void> {
-  await (await currentWindow()).close();
-}
-
-/** Calls `handler` with the maximized state now and after every resize; resolves to the unsubscribe. */
-export async function watchMaximized(handler: (maximized: boolean) => void): Promise<() => void> {
-  const win = await currentWindow();
-  handler(await win.isMaximized());
-  return win.onResized(async () => handler(await win.isMaximized()));
-}
 
 /**
  * Whether the mini player window is already open (it outlives a reload of the main window);

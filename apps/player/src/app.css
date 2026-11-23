@@ -10,3 +10,174 @@ body {
   background: var(--ps-bg);
   color: var(--ps-text-1);
 }
+
+/* While a video plays, mpv draws behind the page: the page is see-through where the picture is. */
+:root.mp-video-on body {
+  background: transparent;
+}
+
+.mp-video {
+  height: 100%;
+  --ps-media-backdrop: transparent;
+}
+
+/* The app sits in a positioned layer after the browser's video element, so it paints above it. */
+.mp-app-layer {
+  position: relative;
+  height: 100%;
+}
+
+/* The browser's picture: one video element behind the page, moved into the player's see-through middle. */
+.mp-web-video {
+  display: none;
+  position: fixed;
+  object-fit: contain;
+  background: var(--ps-bg);
+}
+
+.mp-web-video.is-shown {
+  display: block;
+}
+
+.mp-video-hole {
+  width: 100%;
+  height: 100%;
+}
+
+.mp-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-16);
+}
+
+.mp-note {
+  margin: 0;
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-text-3);
+}
+
+.mp-heading {
+  margin: 0;
+  font-size: var(--ps-font-size-xl);
+}
+
+.mp-streaming,
+.mp-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-24);
+}
+
+.mp-streaming > :first-child {
+  align-self: flex-start;
+}
+
+/* The empty player: its sentence, then one way to open files. */
+.mp-player-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ps-space-16);
+}
+
+.mp-player-empty p {
+  margin: 0;
+}
+
+/* Settings → Library: one row per folder, its path, and a way to stop reading it. */
+.mp-folders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mp-folders li {
+  display: flex;
+  align-items: center;
+  gap: var(--ps-space-12);
+  color: var(--ps-text-2);
+}
+
+.mp-folder-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ps-text-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A film's or a series' title page: the poster beside its name, facts and Play (an early Phase 5 details page). */
+.mp-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--ps-space-24);
+}
+
+.mp-title-poster {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 180px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-3);
+  color: var(--ps-text-3);
+}
+
+.mp-title-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+  min-width: 240px;
+}
+
+.mp-title-kind {
+  font-size: var(--ps-font-size-xs);
+  font-weight: var(--ps-font-weight-semibold);
+  color: var(--ps-text-3);
+  text-transform: uppercase;
+}
+
+.mp-title-name {
+  margin: 0;
+  font-size: var(--ps-font-size-3xl);
+  font-weight: var(--ps-font-weight-bold);
+  overflow-wrap: anywhere;
+}
+
+.mp-title-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-4) var(--ps-space-16);
+  margin: 0 0 var(--ps-space-8);
+  color: var(--ps-text-2);
+  overflow-wrap: anywhere;
+}
+
+.mp-episodes-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+}
+
+.mp-season-pick {
+  align-self: flex-start;
+  min-width: 200px;
+}
+
+.mp-heading-sm {
+  margin: 0;
+  font-size: var(--ps-font-size-lg);
+}
+
+.mp-episodes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+}

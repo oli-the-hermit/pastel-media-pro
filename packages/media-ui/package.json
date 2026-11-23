@@ -1,0 +1,13 @@
+{
+  "name": "@pastel-media/media-ui",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Media pieces the design system does not have yet, built here first and promoted to it later (D7).",
+  "license": "MIT",
+  "author": "San Milano",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/media-ui.css"
+  }
+}

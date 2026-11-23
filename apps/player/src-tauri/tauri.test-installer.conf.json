@@ -1,0 +1,8 @@
+{
+  "productName": "Pastel Media Pro Test",
+  "identifier": "com.pastelmedia.player.test",
+  "bundle": {
+    "resources": { "../../../lib/libmpv-2.dll": "libmpv-2.dll" },
+    "windows": { "nsis": { "installMode": "currentUser", "installerIcon": "icons/icon.ico", "installerHooks": "windows/hooks.test.nsh" } }
+  }
+}

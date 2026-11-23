@@ -1,0 +1,5 @@
+{
+  "$comment": "The file types Pastel Media Pro opens. One list for the Rust side (formats.rs) and the installer's file associations (scripts/installer/gen-hooks.ts).",
+  "audio": ["mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "wma", "aiff", "aif", "ape", "wv", "mka", "mpc"],
+  "video": ["mp4", "mkv", "avi", "mov", "webm", "ts", "m2ts", "m4v", "wmv", "flv", "mpg", "mpeg", "3gp", "ogv", "vob"]
+}
