@@ -186,11 +186,17 @@ pub fn start(app: &AppHandle) {
 
 // The commands are async, so they run off the window's thread: mpv's embedded window needs that thread free.
 
-/// Plays a file. Only files the system handed the app (`open::is_allowed`) or inside the test library
+/// Plays a file. Only files the system handed the app (`open::is_allowed`) or inside the library's folders
 /// (`library::allowed`) may be opened: the page can't name any other path.
 #[tauri::command]
-pub async fn engine_load(app: AppHandle, engine: State<'_, Engine>, opened: State<'_, crate::open::OpenState>, path: String) -> Result<(), String> {
-    if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&path) {
+pub async fn engine_load(
+    app: AppHandle,
+    engine: State<'_, Engine>,
+    opened: State<'_, crate::open::OpenState>,
+    library: State<'_, crate::library::LibraryState>,
+    path: String,
+) -> Result<(), String> {
+    if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&library, &path) {
         return Err("this file is outside the library".into());
     }
     #[cfg(windows)]
@@ -218,7 +224,7 @@ pub async fn engine_load(app: AppHandle, engine: State<'_, Engine>, opened: Stat
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, engine, opened);
+        let _ = (app, engine, opened, library);
         Err("playback is Windows-only for now".into())
     }
 }

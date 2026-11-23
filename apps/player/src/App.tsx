@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   AccountMenu, AppShell, AppShellPage, EmptyState, IconLogOut, IconPlay, Modal, NavRail, NowPlayingBar, ToastRegion, useDrawer, useToasts,
 } from '@pastel-studio/react';
+import { NoFolders } from './media/LibraryFolders';
 import { useLibrary, type Library } from './media/library';
 import { MusicPage } from './media/MusicPage';
 import { pickFiles, useOpenedFiles } from './media/opened';
@@ -11,6 +12,7 @@ import { StreamingPage } from './media/StreamingPage';
 import { rememberLastPage, useSettings } from './settings';
 import { accountViews } from './shell/accountViews';
 import { AppTopBar } from './shell/AppTopBar';
+import { NotifyContext } from './shell/notify';
 import { startPage, visiblePages, type PageKey } from './shell/pages';
 import { strings } from './strings';
 import { useAppearance } from './theme';
@@ -27,6 +29,8 @@ interface PageContentProps {
 
 function PageContent({ page, library, onOpenFiles }: PageContentProps) {
   if (page === 'player') return <PlayerPage library={library} onOpenFiles={onOpenFiles} />;
+  // Nothing to read yet: the media pages ask for one folder (ux.md, "capture before organising").
+  if ((page === 'music' || page === 'streaming') && library && library.roots.length === 0) return <NoFolders />;
   if (page === 'streaming') return <StreamingPage library={library} />;
   if (page === 'music') return library ? <MusicPage library={library} /> : <EmptyState>{strings.library.reading}</EmptyState>;
   return <EmptyState>{strings.pages[page].empty}</EmptyState>;
@@ -103,41 +107,43 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
   }, [video]);
 
   return (
-    <AppShell
-      surface={video && page === 'player' ? 'transparent' : 'solid'}
-      nav={
-        <NavRail
-          label={strings.nav.label}
-          items={pages.map(({ key, icon }) => ({ key, label: strings.pages[key].label, icon }))}
-          activeKey={page}
-          onSelect={(key) => {
-            // The picture lives on the player page; leaving it stops the video (until the mini player, Phase 7).
-            if (video && key !== 'player') playback.stop();
-            go(key as PageKey);
-          }}
-          variant={drawer.expanded ? 'expanded' : 'rail'}
-          brand={BRAND}
-          onToggle={drawer.canExpand ? drawer.toggle : undefined}
-          footer={({ expanded }) => <AccountMenu profile={PROFILE} compact={!expanded} views={accountViews(appearance)} exit={exit} />}
-        />
-      }
-      topBar={<AppTopBar title={strings.pages[page].label} onOpenHelp={() => setHelpOpen(true)} />}
-      bottomBar={playback.current && page !== 'player' ? <NowPlaying library={library} /> : undefined}
-      overlays={
-        <>
-          <ToastRegion toasts={toasts} />
-          <Modal isOpen={helpOpen} title={strings.help.title} onClose={() => setHelpOpen(false)}>
-            <EmptyState>{strings.help.empty}</EmptyState>
-          </Modal>
-        </>
-      }
-    >
-      {pages.map(({ key }) => (
-        <AppShellPage key={key} active={key === page} fill={key === 'player' && video}>
-          <PageContent page={key} library={library} onOpenFiles={openFiles} />
-        </AppShellPage>
-      ))}
-    </AppShell>
+    <NotifyContext.Provider value={showToast}>
+      <AppShell
+        surface={video && page === 'player' ? 'transparent' : 'solid'}
+        nav={
+          <NavRail
+            label={strings.nav.label}
+            items={pages.map(({ key, icon }) => ({ key, label: strings.pages[key].label, icon }))}
+            activeKey={page}
+            onSelect={(key) => {
+              // The picture lives on the player page; leaving it stops the video (until the mini player, Phase 7).
+              if (video && key !== 'player') playback.stop();
+              go(key as PageKey);
+            }}
+            variant={drawer.expanded ? 'expanded' : 'rail'}
+            brand={BRAND}
+            onToggle={drawer.canExpand ? drawer.toggle : undefined}
+            footer={({ expanded }) => <AccountMenu profile={PROFILE} compact={!expanded} views={accountViews(appearance)} exit={exit} />}
+          />
+        }
+        topBar={<AppTopBar title={strings.pages[page].label} onOpenHelp={() => setHelpOpen(true)} />}
+        bottomBar={playback.current && page !== 'player' ? <NowPlaying library={library} /> : undefined}
+        overlays={
+          <>
+            <ToastRegion toasts={toasts} />
+            <Modal isOpen={helpOpen} title={strings.help.title} onClose={() => setHelpOpen(false)}>
+              <EmptyState>{strings.help.empty}</EmptyState>
+            </Modal>
+          </>
+        }
+      >
+        {pages.map(({ key }) => (
+          <AppShellPage key={key} active={key === page} fill={key === 'player' && video}>
+            <PageContent page={key} library={library} onOpenFiles={openFiles} />
+          </AppShellPage>
+        ))}
+      </AppShell>
+    </NotifyContext.Provider>
   );
 }
 

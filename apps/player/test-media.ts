@@ -104,7 +104,7 @@ export function testMedia(): Plugin {
             for (const a of lib.albums) if (fs.existsSync(path.join(CACHE, 'covers', `${a.id}.jpg`))) a.cover = `${BASE}cover/${a.id}.jpg`;
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Cache-Control', 'no-store');
-            res.end(JSON.stringify({ ...lib, root }));
+            res.end(JSON.stringify({ ...lib, roots: [root] }));
             return;
           }
           const cover = /^\/cover\/(a\d+)\.jpg$/.exec(url);

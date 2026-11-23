@@ -14,7 +14,8 @@
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
     "desktop:test-build": "tauri build --debug --no-bundle --config src-tauri/tauri.test.conf.json",
-    "desktop:build:test-media": "tauri build --features test-media --config src-tauri/tauri.test-media.conf.json"
+    "desktop:build:test-installer": "tauri build --config src-tauri/tauri.test-installer.conf.json",
+    "desktop:build:test-media": "tauri build --features test-media --config src-tauri/tauri.test-installer.conf.json"
   },
   "dependencies": {
     "@pastel-media/media-ui": "0.0.0",

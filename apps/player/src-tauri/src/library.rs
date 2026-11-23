@@ -1,6 +1,8 @@
-//! The test library: in a build with the `test-media` feature, the repo's `media_to_test` folder (or
-//! `PASTEL_TEST_MEDIA`) is scanned when a media page first opens (never at launch, D16) and shown there. Read-only; nothing is written to it.
-//! The real library (folders the user picks, SQLite, rescans) is Phase 3; this follows spike S6.
+//! The library, an early form of Phase 3's: the folders the person adds in Settings → Library (kept in
+//! `library-folders.json` in the app's config folder), plus, in a build with the `test-media` feature, the repo's
+//! `media_to_test` folder (or `PASTEL_TEST_MEDIA`). They are read when a media page first opens (never at launch,
+//! D16) and kept in memory until a folder is added or removed. Read-only: nothing is ever written to them.
+//! The real library (SQLite, the review list, the import queue, rescans) is Phase 3; this follows spike S6.
 
 use crate::formats::{self, MediaKind};
 use crate::parse::{self, Kind};
@@ -12,6 +14,7 @@ use lofty::prelude::*;
 use lofty::probe::Probe;
 use lofty::tag::{ItemKey, Tag};
 use serde::Serialize;
+use tauri::{AppHandle, Manager};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -69,8 +72,8 @@ pub struct LibSeries {
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Library {
-    /// The folder that was read, or empty when this build has no test library.
-    pub root: String,
+    /// The folders that were read, as shown to people; empty when there are none.
+    pub roots: Vec<String>,
     pub tracks: Vec<LibTrack>,
     pub albums: Vec<LibAlbum>,
     pub movies: Vec<LibVideo>,
@@ -80,6 +83,8 @@ pub struct Library {
 
 #[derive(Default)]
 pub struct LibraryState {
+    /// The folders the person added (canonical paths).
+    folders: Mutex<Vec<PathBuf>>,
     library: Mutex<Option<Library>>,
     /// Album id → the files to look in for its cover, and the thumbnail once made.
     cover_sources: Mutex<HashMap<String, Vec<PathBuf>>>,
@@ -95,12 +100,90 @@ pub fn root() -> Option<PathBuf> {
     p.canonicalize().ok().filter(|p| p.is_dir())
 }
 
-/// Whether the engine may open this path: only files inside the test folder.
-pub fn allowed(path: &str) -> bool {
-    match (root(), Path::new(path).canonicalize()) {
-        (Some(r), Ok(p)) => p.starts_with(r) && p.is_file(),
-        _ => false,
+/// Every folder the library reads: the test folder first (in a build that has one), then the person's.
+pub fn roots(state: &LibraryState) -> Vec<PathBuf> {
+    root().into_iter().chain(state.folders.lock().unwrap().iter().cloned()).collect()
+}
+
+/// Whether the engine may open this path: only files inside the library's folders.
+pub fn allowed(state: &LibraryState, path: &str) -> bool {
+    let Ok(p) = Path::new(path).canonicalize() else { return false };
+    p.is_file() && roots(state).iter().any(|r| p.starts_with(r))
+}
+
+/// A folder as people see it: without Windows' `\\?\` long-path prefix.
+pub fn shown(path: &Path) -> String {
+    path.to_string_lossy().trim_start_matches(r"\\?\").to_string()
+}
+
+/// The list after adding `folder`: unchanged if it is already read (itself or a folder above it); folders inside it
+/// make way for it, so no file is read twice.
+pub fn with_folder(folders: &[PathBuf], folder: PathBuf) -> Vec<PathBuf> {
+    if folders.iter().any(|f| folder.starts_with(f)) {
+        return folders.to_vec();
     }
+    let mut out: Vec<PathBuf> = folders.iter().filter(|f| !f.starts_with(&folder)).cloned().collect();
+    out.push(folder);
+    out
+}
+
+fn folders_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("library-folders.json"))
+}
+
+/// Reads the saved folders at start (a tiny file; folders that are gone are left out until they come back).
+pub fn load_folders(app: &AppHandle) {
+    let saved: Vec<String> = folders_file(app)
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let folders = saved.iter().filter_map(|p| PathBuf::from(p).canonicalize().ok()).filter(|p| p.is_dir()).collect();
+    *app.state::<LibraryState>().folders.lock().unwrap() = folders;
+}
+
+fn save_folders(app: &AppHandle, folders: &[PathBuf]) -> Result<(), String> {
+    let file = folders_file(app).ok_or("no config folder")?;
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let list: Vec<String> = folders.iter().map(|p| shown(p)).collect();
+    std::fs::write(file, serde_json::to_string_pretty(&list).unwrap_or_default()).map_err(|e| e.to_string())
+}
+
+/// Replaces the folder list: saved, and the library is read again on its next use.
+fn set_folders(app: &AppHandle, folders: Vec<PathBuf>) -> Result<Vec<String>, String> {
+    save_folders(app, &folders)?;
+    let state = app.state::<LibraryState>();
+    *state.folders.lock().unwrap() = folders.clone();
+    *state.library.lock().unwrap() = None;
+    state.cover_sources.lock().unwrap().clear();
+    state.covers.lock().unwrap().clear();
+    Ok(folders.iter().map(|p| shown(p)).collect())
+}
+
+/// The folders the person added, as shown.
+#[tauri::command]
+pub fn library_folders(state: tauri::State<'_, LibraryState>) -> Vec<String> {
+    state.folders.lock().unwrap().iter().map(|p| shown(p)).collect()
+}
+
+/// Picks a folder in Windows' dialog and adds it; resolves to the new list (unchanged when cancelled).
+#[tauri::command]
+pub async fn library_add_folder(app: AppHandle, title: String) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app.dialog().file().set_title(title).blocking_pick_folder();
+    let current = app.state::<LibraryState>().folders.lock().unwrap().clone();
+    let Some(folder) = picked.and_then(|f| f.into_path().ok()).and_then(|p| p.canonicalize().ok()) else {
+        return Ok(current.iter().map(|p| shown(p)).collect());
+    };
+    set_folders(&app, with_folder(&current, folder))
+}
+
+/// Stops reading a folder (its files are untouched); resolves to the new list.
+#[tauri::command]
+pub fn library_remove_folder(app: AppHandle, folder: String) -> Result<Vec<String>, String> {
+    let current = app.state::<LibraryState>().folders.lock().unwrap().clone();
+    set_folders(&app, current.into_iter().filter(|p| shown(p) != folder).collect())
 }
 
 /// First non-empty value of a field over the file's tags, primary first: an MP3 with only ID3v1 has an empty
@@ -148,13 +231,21 @@ pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
 
 /// Reads a folder: the songs grouped into albums, the videos into movies and series, and for each album the files its cover may come from.
 pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
+    scan_all(&[root.to_path_buf()])
+}
+
+/// Reads several folders into one library.
+pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
     let started = std::time::Instant::now();
+    // Videos keep the folder they were found in: the parser reads their path below it (season folders).
     let (mut audio, mut video) = (vec![], vec![]);
-    for e in WalkDir::new(root).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
-        match formats::kind_of(e.path()) {
-            Some(MediaKind::Audio) => audio.push(e.path().to_path_buf()),
-            Some(MediaKind::Video) => video.push(e.path().to_path_buf()),
-            None => {}
+    for root in roots {
+        for e in WalkDir::new(root).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
+            match formats::kind_of(e.path()) {
+                Some(MediaKind::Audio) => audio.push(e.path().to_path_buf()),
+                Some(MediaKind::Video) => video.push((root.clone(), e.path().to_path_buf())),
+                None => {}
+            }
         }
     }
 
@@ -165,9 +256,8 @@ pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
             groups.entry((album_artist.to_lowercase(), t.album.to_lowercase())).or_default().push(t);
         }
     }
-    // Paths keep Windows' \\?\ prefix (long paths reach the engine intact, S4); the folder is shown without it.
-    let shown = root.to_string_lossy().trim_start_matches(r"\\?\").to_string();
-    let (mut lib, mut sources) = (Library { root: shown, ..Default::default() }, HashMap::new());
+    // Paths keep Windows' long-path prefix (long paths reach the engine intact, S4); the folders are shown without it.
+    let (mut lib, mut sources) = (Library { roots: roots.iter().map(|r| shown(r)).collect(), ..Default::default() }, HashMap::new());
     for (i, ((_, _), mut tracks)) in groups.into_iter().enumerate() {
         tracks.sort_by(|a, b| (a.disc, a.number, &a.path).cmp(&(b.disc, b.number, &b.path)));
         let id = format!("a{i}");
@@ -185,7 +275,7 @@ pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
 
     // Videos: the parser says movie or episode; episodes group into series by title.
     let mut series: BTreeMap<String, Vec<LibVideo>> = BTreeMap::new();
-    for (i, p) in video.iter().enumerate() {
+    for (i, (root, p)) in video.iter().enumerate() {
         let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
         let parsed = parse::parse(&rel);
         let v = LibVideo {
@@ -211,14 +301,17 @@ pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
     (lib, sources)
 }
 
-/// The test library, scanned on the first call (about 0.2 s for `media_to_test`).
+/// The library, read on the first call after a start or a change of folders (about 0.2 s for `media_to_test`).
 #[tauri::command]
 pub async fn library_get(state: tauri::State<'_, LibraryState>) -> Result<Library, String> {
     if let Some(l) = state.library.lock().unwrap().clone() {
         return Ok(l);
     }
-    let Some(root) = root() else { return Ok(Library::default()) };
-    let (lib, sources) = tauri::async_runtime::spawn_blocking(move || scan(&root)).await.map_err(|e| e.to_string())?;
+    let roots = roots(&state);
+    if roots.is_empty() {
+        return Ok(Library::default());
+    }
+    let (lib, sources) = tauri::async_runtime::spawn_blocking(move || scan_all(&roots)).await.map_err(|e| e.to_string())?;
     *state.cover_sources.lock().unwrap() = sources;
     *state.library.lock().unwrap() = Some(lib.clone());
     Ok(lib)
@@ -263,4 +356,26 @@ pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: Stri
     .map_err(|e| e.to_string())?;
     state.covers.lock().unwrap().insert(album_id, url.clone());
     Ok(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adding_a_folder_never_reads_a_file_twice() {
+        let (music, videos) = (PathBuf::from(r"C:\Users\a\Music"), PathBuf::from(r"C:\Users\a\Videos"));
+        let both = with_folder(&[music.clone()], videos.clone());
+        assert_eq!(both, vec![music.clone(), videos.clone()]);
+        // Again, or a folder inside one already read: nothing changes.
+        assert_eq!(with_folder(&both, videos.clone()), both);
+        assert_eq!(with_folder(&both, music.join("Albums")), both);
+        // A folder above both takes their place.
+        assert_eq!(with_folder(&both, PathBuf::from(r"C:\Users\a")), vec![PathBuf::from(r"C:\Users\a")]);
+    }
+
+    #[test]
+    fn shows_folders_without_the_long_path_prefix() {
+        assert_eq!(shown(Path::new(r"\\?\D:\Media\Films")), r"D:\Media\Films");
+    }
 }

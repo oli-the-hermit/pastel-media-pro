@@ -36,6 +36,7 @@ cd pastel-media-pro && npm install
 | `npm run desktop` | The desktop app, reloading as you edit |
 | `npm run desktop:test-build` | A debug desktop build under its own identifier, so it never touches the installed app's data |
 | `npm run desktop:build` | The Windows installer (NSIS) |
+| `npm run desktop:build:test-installer` | An installer for testing, "Pastel Media Pro Test": its own identifier and data, libmpv bundled |
 | `npm run check` | Types, ESLint, Stylelint, the tests and a production build |
 | `npm run visual:capture` | A screenshot of every view of the shell in both themes; `visual:diff` compares them with the baseline. Run `npm run visual:install` once first: it puts Playwright's Chromium in `node_modules` |
 | `npm run corpus` | Generates a synthetic media test corpus into `corpus/` with ffmpeg |

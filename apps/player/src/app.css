@@ -83,3 +83,29 @@ body {
 .mp-player-empty p {
   margin: 0;
 }
+
+/* Settings → Library: one row per folder, its path, and a way to stop reading it. */
+.mp-folders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mp-folders li {
+  display: flex;
+  align-items: center;
+  gap: var(--ps-space-12);
+  color: var(--ps-text-2);
+}
+
+.mp-folder-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ps-text-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -59,7 +59,7 @@ export function MusicPage({ library }: { library: Library }) {
   if (open) return <OpenAlbum album={open} tracks={open.trackIds.map((id) => byId.get(id)!)} onBack={() => setOpenId(null)} />;
   return (
     <div className="mp-page">
-      <p className="mp-note">{strings.library.testFolder(library.root)}</p>
+      <p className="mp-note">{strings.library.from(library.roots)}</p>
       <MediaGrid aria-label={strings.music.albums}>
         {library.albums.map((a) => (
           <AlbumTile key={a.id} album={a} current={!!playback.current && a.trackIds.includes(playback.current.id)} onOpen={() => setOpenId(a.id)} />

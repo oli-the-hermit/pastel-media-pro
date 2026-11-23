@@ -30,7 +30,7 @@ export function MoviesPage({ library }: { library: Library }) {
   if (library.movies.length === 0) return <EmptyState>{strings.streaming.views.movies.empty}</EmptyState>;
   return (
     <div className="mp-page">
-      <p className="mp-note">{strings.library.testFolder(library.root)}</p>
+      <p className="mp-note">{strings.library.from(library.roots)}</p>
       <VideoTiles videos={library.movies} label={strings.streaming.views.movies.label} subtitle={(v) => (v.year ? String(v.year) : undefined)} />
     </div>
   );
@@ -54,7 +54,7 @@ export function SeriesPage({ library }: { library: Library }) {
   }
   return (
     <div className="mp-page">
-      <p className="mp-note">{strings.library.testFolder(library.root)}</p>
+      <p className="mp-note">{strings.library.from(library.roots)}</p>
       <MediaGrid aria-label={strings.streaming.views.series.label}>
         {library.series.map((s) => (
           <div role="listitem" key={s.id}>

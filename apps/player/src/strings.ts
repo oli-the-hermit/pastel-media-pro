@@ -53,7 +53,7 @@ export const strings = {
     ariaLabel: 'Settings',
     tabs: {
       general: { label: 'General' },
-      library: { label: 'Library', empty: 'The folders your library reads will be set here.' },
+      library: { label: 'Library' },
       playback: { label: 'Playback', empty: 'How music and videos play will be set here.' },
       subtitles: { label: 'Subtitles', empty: 'How subtitles look and which languages come first will be set here.' },
       transcription: { label: 'Transcription', empty: 'The speech models and where they are kept will be set here.' },
@@ -71,9 +71,17 @@ export const strings = {
     empty: 'The mini player will live here.',
   },
   library: {
-    reading: 'Reading the test library…',
-    /** A dev build's note on the media pages: where the test files come from. */
-    testFolder: (root: string) => `Test library: ${root}`,
+    reading: 'Reading your library…',
+    /** A note on the media pages: the folders they come from. */
+    from: (roots: string[]) => `From ${roots.join(' · ')}`,
+    noFolders: 'Add a folder with your music or videos, and they will show here. Nothing in it is ever changed.',
+    add: 'Add a folder',
+    addTitle: 'Add a folder to your library',
+    foldersLabel: 'Your library folders',
+    foldersHint: 'Pastel Media Pro reads these folders and never changes them. An early version: filters and a list to check before adding come next.',
+    remove: (folder: string) => `Stop reading ${folder}`,
+    browserOnly: 'The desktop app adds folders from your computer.',
+    failed: (reason: string) => `This folder could not be added: ${reason}`,
   },
   music: {
     albums: 'Albums',

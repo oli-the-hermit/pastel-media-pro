@@ -21,6 +21,7 @@ pub fn run() {
         .manage(open::OpenState::default())
         .setup(|app| {
             engine::start(app.handle());
+            library::load_folders(app.handle());
             open::receive_launch(app.handle());
             Ok(())
         })
@@ -31,6 +32,9 @@ pub fn run() {
             engine::engine_status,
             library::library_get,
             library::library_cover,
+            library::library_folders,
+            library::library_add_folder,
+            library::library_remove_folder,
             open::open_launched,
             open::open_take,
             open::open_pick,

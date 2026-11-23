@@ -1,8 +1,8 @@
 /**
- * The test library a dev build reads from `media_to_test`: in the desktop app through the Rust side
- * (`library.rs`), in the browser from the dev server (`apps/player/test-media.ts`, same scanner, files as URLs).
- * Any other build gets an empty library and the pages keep their empty states. It is read the first time a page
- * needs it, never at launch, so opening a file stays instant (D16).
+ * The library, an early form of Phase 3's: in the desktop app, the folders added in Settings → Library (and a dev
+ * build's `media_to_test`), read by the Rust side (`library.rs`); in the browser, the dev server's test folder
+ * (`apps/player/test-media.ts`, same scanner, files as URLs). It is read the first time a page needs it, never at
+ * launch, so opening a file stays instant (D16), and again after the folders change.
  */
 import { useEffect, useState } from 'react';
 import type { Album, Track } from '@pastel-studio/react';
@@ -52,8 +52,8 @@ export interface LibSeries {
 }
 
 export interface Library {
-  /** The folder that was read; empty when there is no test library. */
-  root: string;
+  /** The folders that were read; empty when there are none. */
+  roots: string[];
   tracks: LibTrack[];
   albums: LibAlbum[];
   movies: LibVideo[];
@@ -61,7 +61,7 @@ export interface Library {
   scanMs: number;
 }
 
-export const EMPTY_LIBRARY: Library = { root: '', tracks: [], albums: [], movies: [], series: [], scanMs: 0 };
+export const EMPTY_LIBRARY: Library = { roots: [], tracks: [], albums: [], movies: [], series: [], scanMs: 0 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return (await import('@tauri-apps/api/core')).invoke<T>(cmd, args);
@@ -80,21 +80,70 @@ async function fetchWebLibrary(): Promise<Library> {
   return lib;
 }
 
+// The library is read again after the folders change: every hook that shows it follows.
+let version = 0;
+const changed = new Set<() => void>();
+
+function libraryChanged() {
+  version += 1;
+  covers.clear();
+  changed.forEach((l) => l());
+}
+
 /**
- * The library, read once, the first time `needed` is true (a page that shows it opened); `null` until then and
- * while it loads.
+ * The library, read the first time `needed` is true (a page that shows it opened) and again whenever the folders
+ * change; `null` until then and while it loads.
  */
 export function useLibrary(needed: boolean): Library | null {
   const source = isDesktop() ? 'desktop' : WEB_TEST_MEDIA ? 'web' : 'none';
   const [library, setLibrary] = useState<Library | null>(source === 'none' ? EMPTY_LIBRARY : null);
   const [asked, setAsked] = useState(false);
+  const [seen, setSeen] = useState(version);
   if (needed && !asked) setAsked(true);
   useEffect(() => {
+    const follow = () => setSeen(version);
+    changed.add(follow);
+    return () => {
+      changed.delete(follow);
+    };
+  }, []);
+  useEffect(() => {
     if (!asked) return;
-    if (source === 'desktop') invoke<Library>('library_get').then(setLibrary, () => setLibrary(EMPTY_LIBRARY));
-    else if (source === 'web') fetchWebLibrary().then(setLibrary, () => setLibrary(EMPTY_LIBRARY));
-  }, [asked, source]);
+    let alive = true;
+    const show = (l: Library) => alive && setLibrary(l);
+    setLibrary(null);
+    if (source === 'desktop') invoke<Library>('library_get').then(show, () => show(EMPTY_LIBRARY));
+    else if (source === 'web') fetchWebLibrary().then(show, () => show(EMPTY_LIBRARY));
+    else setLibrary(EMPTY_LIBRARY);
+    return () => {
+      alive = false;
+    };
+  }, [asked, source, seen]);
   return library;
+}
+
+/** Whether this build can add folders: the desktop app. */
+export const canAddFolders = () => isDesktop();
+
+/** The folders added in Settings → Library. */
+export async function libraryFolders(): Promise<string[]> {
+  if (!isDesktop()) return [];
+  return invoke<string[]>('library_folders');
+}
+
+/** Windows' folder dialog; resolves to the new list (unchanged when cancelled). */
+export async function addLibraryFolder(): Promise<string[]> {
+  const before = await libraryFolders();
+  const after = await invoke<string[]>('library_add_folder', { title: strings.library.addTitle });
+  if (after.join('\n') !== before.join('\n')) libraryChanged();
+  return after;
+}
+
+/** Stops reading a folder; its files are untouched. */
+export async function removeLibraryFolder(folder: string): Promise<string[]> {
+  const after = await invoke<string[]>('library_remove_folder', { folder });
+  libraryChanged();
+  return after;
 }
 
 const covers = new Map<string, Promise<string | undefined>>();

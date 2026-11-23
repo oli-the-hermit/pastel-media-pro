@@ -2,6 +2,9 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App';
+import { EMPTY_LIBRARY } from './media/library';
+import { PlaybackProvider } from './media/playback';
+import { StreamingPage } from './media/StreamingPage';
 import { reloadSettings } from './settings';
 import { strings } from './strings';
 
@@ -37,13 +40,28 @@ describe('App', () => {
     await user.click(within(nav()).getByRole('button', { name: strings.pages.music.label }));
     expect(heading()).toBe(strings.pages.music.label);
     expect(within(nav()).getByRole('button', { name: strings.pages.music.label }).getAttribute('aria-current')).toBe('page');
-    expect(screen.getByText(strings.pages.music.empty).closest('section')?.className).toContain('is-active');
+    expect(document.querySelector('section.is-active')?.textContent).toContain(strings.library.noFolders);
+  });
+
+  it('asks for a folder on Music and Streaming while the library has none', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    for (const page of [strings.pages.music.label, strings.pages.streaming.label]) {
+      await user.click(within(nav()).getByRole('button', { name: page }));
+      const active = document.querySelector('section.is-active') as HTMLElement;
+      expect(within(active).getByText(strings.library.noFolders)).toBeTruthy();
+      // A browser can't reach the computer's folders: it says so instead of offering the button.
+      expect(within(active).getByText(strings.library.browserOnly)).toBeTruthy();
+    }
   });
 
   it('shows Streaming as views: Home first, then Movies, Series and Clips', async () => {
     const user = userEvent.setup();
-    render(<App />);
-    await user.click(within(nav()).getByRole('button', { name: strings.pages.streaming.label }));
+    render(
+      <PlaybackProvider>
+        <StreamingPage library={{ ...EMPTY_LIBRARY, roots: ['D:\\Films'] }} />
+      </PlaybackProvider>,
+    );
     const views = screen.getByRole('radiogroup', { name: strings.streaming.viewsLabel });
     expect(within(views).getAllByRole('radio').map((r) => r.textContent)).toEqual(Object.values(strings.streaming.views).map((v) => v.label));
     expect(screen.getByText(strings.streaming.views.home.empty)).toBeTruthy();
@@ -134,6 +152,8 @@ describe('App', () => {
     const dialog = await openSettings(user);
     const tabs = Object.values(strings.settings.tabs);
     expect(within(dialog).getAllByRole('tab').map((t) => t.textContent)).toEqual(tabs.map((t) => t.label));
+    await user.click(within(dialog).getByRole('tab', { name: strings.settings.tabs.library.label }));
+    expect(within(dialog).getByRole('tabpanel').textContent).toBe(strings.library.browserOnly);
     await user.click(within(dialog).getByRole('tab', { name: strings.settings.tabs.playback.label }));
     expect(within(dialog).getByRole('tabpanel').textContent).toBe(strings.settings.tabs.playback.empty);
   });
