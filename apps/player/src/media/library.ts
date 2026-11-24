@@ -127,23 +127,31 @@ export function useLibrary(needed: boolean): Library | null {
 /** Whether this build can add folders: the desktop app. */
 export const canAddFolders = () => isDesktop();
 
-/** The folders added in Settings → Library. */
-export async function libraryFolders(): Promise<string[]> {
-  if (!isDesktop()) return [];
-  return invoke<string[]>('library_folders');
+/** A folder added in Settings → Library, and whether it is there now (a drive can be unplugged). */
+export interface LibraryFolder {
+  path: string;
+  found: boolean;
 }
 
+/** The folders added in Settings → Library. */
+export async function libraryFolders(): Promise<LibraryFolder[]> {
+  if (!isDesktop()) return [];
+  return invoke<LibraryFolder[]>('library_folders');
+}
+
+const pathsOf = (list: LibraryFolder[]) => list.map((f) => f.path).join('\n');
+
 /** Windows' folder dialog; resolves to the new list (unchanged when cancelled). */
-export async function addLibraryFolder(): Promise<string[]> {
+export async function addLibraryFolder(): Promise<LibraryFolder[]> {
   const before = await libraryFolders();
-  const after = await invoke<string[]>('library_add_folder', { title: strings.library.addTitle });
-  if (after.join('\n') !== before.join('\n')) libraryChanged();
+  const after = await invoke<LibraryFolder[]>('library_add_folder', { title: strings.library.addTitle });
+  if (pathsOf(after) !== pathsOf(before)) libraryChanged();
   return after;
 }
 
 /** Stops reading a folder; its files are untouched. */
-export async function removeLibraryFolder(folder: string): Promise<string[]> {
-  const after = await invoke<string[]>('library_remove_folder', { folder });
+export async function removeLibraryFolder(folder: string): Promise<LibraryFolder[]> {
+  const after = await invoke<LibraryFolder[]>('library_remove_folder', { folder });
   libraryChanged();
   return after;
 }
@@ -165,6 +173,24 @@ export function useCover(albumId: string): string | undefined {
       alive = false;
     };
   }, [albumId]);
+  return cover;
+}
+
+const openedCovers = new Map<string, Promise<string | undefined>>();
+
+/** The cover of a song opened from Windows (`path`; empty for none), read once per file by the desktop app. */
+export function useOpenedCover(path: string): string | undefined {
+  const [cover, setCover] = useState<string | undefined>();
+  useEffect(() => {
+    setCover(undefined);
+    if (!path || !isDesktop()) return;
+    let alive = true;
+    if (!openedCovers.has(path)) openedCovers.set(path, invoke<string | null>('open_cover', { path }).then((c) => c ?? undefined, () => undefined));
+    void openedCovers.get(path)!.then((c) => alive && setCover(c));
+    return () => {
+      alive = false;
+    };
+  }, [path]);
   return cover;
 }
 

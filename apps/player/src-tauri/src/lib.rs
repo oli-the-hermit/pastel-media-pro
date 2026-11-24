@@ -38,6 +38,7 @@ pub fn run() {
             open::open_launched,
             open::open_take,
             open::open_pick,
+            open::open_cover,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {

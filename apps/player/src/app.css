@@ -223,3 +223,92 @@ body {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+/* Settings → Library: a folder that can't be found stays listed, with a note. */
+.mp-folder-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mp-folders li.is-gone .mp-folder-path {
+  color: var(--ps-text-3);
+}
+
+.mp-folder-gone {
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-warning);
+}
+
+/* The player when a file can't be played: its name, the reason under Details, Open files. */
+.mp-cant-play-file {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ps-text-1);
+}
+
+.mp-cant-play-details {
+  max-width: 60ch;
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Help: short sections and the keyboard shortcuts. */
+.mp-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-24);
+}
+
+.mp-help section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+}
+
+.mp-help h3 {
+  margin: 0;
+  font-size: var(--ps-font-size-md);
+  color: var(--ps-text-1);
+}
+
+.mp-help p {
+  margin: 0;
+  color: var(--ps-text-2);
+}
+
+.mp-keys {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+  margin: 0;
+}
+
+.mp-keys div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ps-space-12);
+}
+
+.mp-keys dt {
+  flex: none;
+  width: 10ch;
+}
+
+.mp-keys dd {
+  margin: 0;
+  color: var(--ps-text-2);
+}
+
+.mp-keys kbd {
+  padding: var(--ps-space-2) var(--ps-space-6);
+  border-radius: var(--ps-radius-sm);
+  background: var(--ps-surface-3);
+  color: var(--ps-text-1);
+  font-family: inherit;
+  font-size: var(--ps-font-size-xs);
+  white-space: nowrap;
+}

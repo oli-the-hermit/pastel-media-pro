@@ -25,6 +25,8 @@ export interface EngineStatus {
   idle?: string;
   buffering?: string;
   video?: string;
+  /** The last file mpv could not open; `seq` grows with each failure. */
+  loadError?: { seq: number; path: string; reason: string } | null;
 }
 
 export const engine = {

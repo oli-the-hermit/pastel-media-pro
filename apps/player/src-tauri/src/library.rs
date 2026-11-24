@@ -17,6 +17,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use walkdir::WalkDir;
 
@@ -83,10 +84,19 @@ pub struct Library {
     pub scan_ms: u64,
 }
 
+/// A folder the person added, as shown, and whether it is there now (a drive can be unplugged).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Folder {
+    pub path: String,
+    pub found: bool,
+}
+
 #[derive(Default)]
 pub struct LibraryState {
-    /// The folders the person added (canonical paths).
+    /// The folders the person added (canonical paths; a folder that is gone keeps the path it was saved with).
     folders: Mutex<Vec<PathBuf>>,
+    /// Grows each time the folders change: a scan that started before a change is not kept.
+    generation: AtomicU64,
     library: Mutex<Option<Library>>,
     /// Album id → the files to look in for its cover, and the thumbnail once made.
     cover_sources: Mutex<HashMap<String, Vec<PathBuf>>>,
@@ -102,9 +112,15 @@ pub fn root() -> Option<PathBuf> {
     p.canonicalize().ok().filter(|p| p.is_dir())
 }
 
-/// Every folder the library reads: the test folder first (in a build that has one), then the person's.
+/// Every folder the library reads: the test folder first (in a build that has one), then the person's that are
+/// there now.
 pub fn roots(state: &LibraryState) -> Vec<PathBuf> {
-    root().into_iter().chain(state.folders.lock().unwrap().iter().cloned()).collect()
+    root().into_iter().chain(state.folders.lock().unwrap().iter().filter(|p| p.is_dir()).cloned()).collect()
+}
+
+/// The folders as Settings lists them.
+pub fn folder_list(folders: &[PathBuf]) -> Vec<Folder> {
+    folders.iter().map(|p| Folder { path: shown(p), found: p.is_dir() }).collect()
 }
 
 /// Whether the engine may open this path: only files inside the library's folders.
@@ -133,13 +149,14 @@ fn folders_file(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("library-folders.json"))
 }
 
-/// Reads the saved folders at start (a tiny file; folders that are gone are left out until they come back).
+/// Reads the saved folders at start (a tiny file). A folder that is gone stays in the list, marked in Settings, and
+/// is read again once it is back.
 pub fn load_folders(app: &AppHandle) {
     let saved: Vec<String> = folders_file(app)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    let folders = saved.iter().filter_map(|p| PathBuf::from(p).canonicalize().ok()).filter(|p| p.is_dir()).collect();
+    let folders = saved.iter().map(PathBuf::from).map(|p| p.canonicalize().unwrap_or(p)).collect();
     *app.state::<LibraryState>().folders.lock().unwrap() = folders;
 }
 
@@ -153,37 +170,38 @@ fn save_folders(app: &AppHandle, folders: &[PathBuf]) -> Result<(), String> {
 }
 
 /// Replaces the folder list: saved, and the library is read again on its next use.
-fn set_folders(app: &AppHandle, folders: Vec<PathBuf>) -> Result<Vec<String>, String> {
+fn set_folders(app: &AppHandle, folders: Vec<PathBuf>) -> Result<Vec<Folder>, String> {
     save_folders(app, &folders)?;
     let state = app.state::<LibraryState>();
+    state.generation.fetch_add(1, Ordering::SeqCst);
     *state.folders.lock().unwrap() = folders.clone();
     *state.library.lock().unwrap() = None;
     state.cover_sources.lock().unwrap().clear();
     state.covers.lock().unwrap().clear();
-    Ok(folders.iter().map(|p| shown(p)).collect())
+    Ok(folder_list(&folders))
 }
 
-/// The folders the person added, as shown.
+/// The folders the person added, as shown, each marked when it can't be found.
 #[tauri::command]
-pub fn library_folders(state: tauri::State<'_, LibraryState>) -> Vec<String> {
-    state.folders.lock().unwrap().iter().map(|p| shown(p)).collect()
+pub fn library_folders(state: tauri::State<'_, LibraryState>) -> Vec<Folder> {
+    folder_list(&state.folders.lock().unwrap())
 }
 
 /// Picks a folder in Windows' dialog and adds it; resolves to the new list (unchanged when cancelled).
 #[tauri::command]
-pub async fn library_add_folder(app: AppHandle, title: String) -> Result<Vec<String>, String> {
+pub async fn library_add_folder(app: AppHandle, title: String) -> Result<Vec<Folder>, String> {
     use tauri_plugin_dialog::DialogExt;
     let picked = app.dialog().file().set_title(title).blocking_pick_folder();
     let current = app.state::<LibraryState>().folders.lock().unwrap().clone();
     let Some(folder) = picked.and_then(|f| f.into_path().ok()).and_then(|p| p.canonicalize().ok()) else {
-        return Ok(current.iter().map(|p| shown(p)).collect());
+        return Ok(folder_list(&current));
     };
     set_folders(&app, with_folder(&current, folder))
 }
 
 /// Stops reading a folder (its files are untouched); resolves to the new list.
 #[tauri::command]
-pub fn library_remove_folder(app: AppHandle, folder: String) -> Result<Vec<String>, String> {
+pub fn library_remove_folder(app: AppHandle, folder: String) -> Result<Vec<Folder>, String> {
     let current = app.state::<LibraryState>().folders.lock().unwrap().clone();
     set_folders(&app, current.into_iter().filter(|p| shown(p) != folder).collect())
 }
@@ -336,13 +354,17 @@ pub async fn library_get(state: tauri::State<'_, LibraryState>) -> Result<Librar
     if let Some(l) = state.library.lock().unwrap().clone() {
         return Ok(l);
     }
+    let generation = state.generation.load(Ordering::SeqCst);
     let roots = roots(&state);
     if roots.is_empty() {
         return Ok(Library::default());
     }
     let (lib, sources) = tauri::async_runtime::spawn_blocking(move || scan_all(&roots)).await.map_err(|e| e.to_string())?;
-    *state.cover_sources.lock().unwrap() = sources;
-    *state.library.lock().unwrap() = Some(lib.clone());
+    // The folders changed while this scan ran: the page asks again for the new ones, so this one is not kept.
+    if state.generation.load(Ordering::SeqCst) == generation {
+        *state.cover_sources.lock().unwrap() = sources;
+        *state.library.lock().unwrap() = Some(lib.clone());
+    }
     Ok(lib)
 }
 
@@ -378,13 +400,18 @@ pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: Stri
         return Ok(c.clone());
     }
     let files = state.cover_sources.lock().unwrap().get(&album_id).cloned().unwrap_or_default();
-    let url = tauri::async_runtime::spawn_blocking(move || {
+    let url = cover_url(files).await?;
+    state.covers.lock().unwrap().insert(album_id, url.clone());
+    Ok(url)
+}
+
+/// A cover as a small JPEG data URL, made off the window's thread.
+pub async fn cover_url(files: Vec<PathBuf>) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
         cover_thumbnail(&files).map(|jpg| format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpg)))
     })
     .await
-    .map_err(|e| e.to_string())?;
-    state.covers.lock().unwrap().insert(album_id, url.clone());
-    Ok(url)
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -431,6 +458,21 @@ mod tests {
         assert!(robot.episodes.iter().all(|e| e.title == "Mr Robot"));
         assert_eq!(lib.series[0].episodes[0].episode_title.as_deref(), Some("Secrets"));
         assert_eq!(lib.movies.len(), 1);
+    }
+
+    #[test]
+    fn a_folder_that_is_gone_stays_listed_and_is_not_read() {
+        let here = std::env::temp_dir().join(format!("pmp-here-{}", std::process::id()));
+        std::fs::create_dir_all(&here).unwrap();
+        let gone = PathBuf::from(r"Z:\Unplugged\Music");
+        let state = LibraryState::default();
+        *state.folders.lock().unwrap() = vec![here.clone(), gone.clone()];
+        let list = folder_list(&state.folders.lock().unwrap());
+        assert_eq!(list.iter().map(|f| f.found).collect::<Vec<_>>(), vec![true, false]);
+        assert_eq!(list[1].path, r"Z:\Unplugged\Music");
+        assert!(!roots(&state).contains(&gone));
+        assert!(roots(&state).contains(&here));
+        std::fs::remove_dir_all(&here).ok();
     }
 
     #[test]

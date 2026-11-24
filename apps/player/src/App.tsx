@@ -12,8 +12,10 @@ import { StreamingPage } from './media/StreamingPage';
 import { rememberLastPage, useSettings } from './settings';
 import { accountViews } from './shell/accountViews';
 import { AppTopBar } from './shell/AppTopBar';
+import { HelpView } from './shell/HelpView';
 import { NotifyContext } from './shell/notify';
 import { startPage, visiblePages, type PageKey } from './shell/pages';
+import { usePlayerShortcuts } from './shell/shortcuts';
 import { strings } from './strings';
 import { useAppearance } from './theme';
 
@@ -75,7 +77,14 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
     if (!pages.some((p) => p.key === page)) go('player');
   }, [pages, page, go]);
 
-  const { error, clearError, playOpened } = playback;
+  usePlayerShortcuts(playback);
+
+  const { error, clearError, skipped, clearSkipped, playOpened } = playback;
+  useEffect(() => {
+    if (!skipped) return;
+    showToast(strings.playback.skipped(skipped.split(/[\\/]/).pop() ?? skipped), 'error');
+    clearSkipped();
+  }, [skipped, clearSkipped, showToast]);
   useEffect(() => {
     if (!error) return;
     const words: Record<string, string> = { unplayable: strings.playback.unplayable, browser: strings.playback.browser };
@@ -132,7 +141,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
           <>
             <ToastRegion toasts={toasts} />
             <Modal isOpen={helpOpen} title={strings.help.title} onClose={() => setHelpOpen(false)}>
-              <EmptyState>{strings.help.empty}</EmptyState>
+              <HelpView />
             </Modal>
           </>
         }

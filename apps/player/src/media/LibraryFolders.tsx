@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, EmptyState, Field, IconClose, IconFolder, IconFolderPlus, IconButton } from '@pastel-studio/react';
 import { useNotify } from '../shell/notify';
 import { strings } from '../strings';
-import { addLibraryFolder, canAddFolders, libraryFolders, removeLibraryFolder } from './library';
+import { addLibraryFolder, canAddFolders, libraryFolders, removeLibraryFolder, type LibraryFolder } from './library';
 
 /** Adds a folder through Windows' dialog; a failure becomes a toast. */
-function useAddFolder(onList?: (folders: string[]) => void) {
+function useAddFolder(onList?: (folders: LibraryFolder[]) => void) {
   const showToast = useNotify();
   return useCallback(() => {
     void addLibraryFolder().then(
@@ -34,7 +34,7 @@ export function NoFolders() {
 
 /** Settings → Library: the folders the library reads, with Add and a way to stop reading one. */
 export function LibraryFoldersSettings() {
-  const [folders, setFolders] = useState<string[]>([]);
+  const [folders, setFolders] = useState<LibraryFolder[]>([]);
   const showToast = useNotify();
   useEffect(() => {
     void libraryFolders().then(setFolders, () => {});
@@ -48,12 +48,15 @@ export function LibraryFoldersSettings() {
         {folders.length === 0 ? undefined : (
           <ul className="mp-folders">
             {folders.map((f) => (
-              <li key={f}>
+              <li key={f.path} className={f.found ? undefined : 'is-gone'}>
                 <IconFolder size={18} />
-                <span className="mp-folder-path">{f}</span>
+                <span className="mp-folder-text">
+                  <span className="mp-folder-path">{f.path}</span>
+                  {f.found ? undefined : <span className="mp-folder-gone">{strings.library.gone}</span>}
+                </span>
                 <IconButton
-                  label={strings.library.remove(f)}
-                  onClick={() => void removeLibraryFolder(f).then(setFolders, (e) => showToast(strings.library.failed(String(e)), 'error'))}
+                  label={strings.library.remove(f.path)}
+                  onClick={() => void removeLibraryFolder(f.path).then(setFolders, (e) => showToast(strings.library.failed(String(e)), 'error'))}
                 >
                   <IconClose size={16} />
                 </IconButton>

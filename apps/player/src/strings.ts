@@ -38,7 +38,21 @@ export const strings = {
   },
   help: {
     title: 'Help',
-    empty: 'Help and the keyboard shortcuts arrive with the first features.',
+    playTitle: 'Playing files',
+    play: 'Open a song or a video from Windows (Open with, or a double-click once Pastel Media Pro is your player), drop files on the window, or use Open files on the player. Several files play as one queue.',
+    libraryTitle: 'Your library',
+    library: 'Add the folders with your music and videos in Settings → Library. Music shows your albums; Streaming shows your films and series. Your files are only read, never changed.',
+    keysTitle: 'Keyboard shortcuts',
+    keysHint: 'While something plays, and not while you type.',
+    keys: [
+      ['Space or K', 'Play or pause'],
+      ['← →', 'Back or forward 5 seconds'],
+      ['↑ ↓', 'Volume up or down'],
+      ['M', 'Mute or unmute'],
+      ['N  P', 'Next or previous song'],
+    ],
+    issuesTitle: 'Something not working?',
+    issues: 'Tell us at github.com/oli-the-hermit/pastel-media-pro/issues, with what you did and the file type.',
   },
   account: {
     defaultName: 'Profile 1',
@@ -96,6 +110,7 @@ export const strings = {
     remove: (folder: string) => `Stop reading ${folder}`,
     browserOnly: 'The desktop app adds folders from your computer.',
     failed: (reason: string) => `This folder could not be added: ${reason}`,
+    gone: "Can't be found right now. If it's on a drive, connect it and it will be read again.",
   },
   music: {
     albums: 'Albums',
@@ -124,6 +139,10 @@ export const strings = {
     episodes: (n: number) => (n === 1 ? '1 episode' : `${n} episodes`),
   },
   playback: {
+    cantPlay: "We can't play this file",
+    details: 'Details',
+    hideDetails: 'Hide details',
+    skipped: (name: string) => `We can't play “${name}”, so it was skipped.`,
     unplayable: 'This song has no audio the player can read.',
     browser: "This browser can't play this file. The desktop app can.",
     failed: (reason: string) => `This file could not be played: ${reason}`,
