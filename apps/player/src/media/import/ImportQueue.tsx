@@ -15,7 +15,7 @@ export function jobTitle(job: Job): string {
 export function jobResult(job: Job): string {
   if (job.state === 'cancelled') return strings.queue.stopped(job.done, job.total);
   if (job.state === 'failed') return strings.queue.failed;
-  return strings.queue.result(job.added, job.updated, job.missing);
+  return strings.queue.result(job.added, job.updated, job.missing, job.errors.length);
 }
 
 const LABELS = { transfers: strings.queue.title, transferCounting: strings.queue.finding };

@@ -138,7 +138,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
   return (
     <ImportContext.Provider value={flow}>
       {children}
-      <Modal isOpen={review != null} title={review?.title ?? ''} onClose={close} wide>
+      <Modal isOpen={review != null} title={review?.title ?? ''} onClose={close} wide className="mp-review-dialog">
         {review ? (
           <ReviewList
             key={review.key}

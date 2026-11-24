@@ -49,6 +49,8 @@ pub fn memory() -> Connection {
 pub struct Db {
     conn: Mutex<Option<Connection>>,
     path: Mutex<Option<std::path::PathBuf>>,
+    /// The thread holding the connection: asking again on the same thread would wait forever.
+    owner: Mutex<Option<std::thread::ThreadId>>,
 }
 
 impl Db {
@@ -59,21 +61,33 @@ impl Db {
 
     /// For tests: an in-memory database.
     pub fn in_memory() -> Db {
-        Db { conn: Mutex::new(Some(memory())), path: Mutex::new(None) }
+        Db { conn: Mutex::new(Some(memory())), ..Default::default() }
     }
 
     /// The connection, opened on the first call.
     pub fn conn(&self) -> Result<DbGuard<'_>, String> {
+        let me = std::thread::current().id();
+        if *self.owner.lock().unwrap() == Some(me) {
+            debug_assert!(false, "the library connection was asked for twice on one thread");
+            return Err("the library database is busy on this thread".into());
+        }
         let mut guard = self.conn.lock().unwrap();
         if guard.is_none() {
             let path = self.path.lock().unwrap().clone().ok_or("the library has no data folder")?;
             *guard = Some(open(&path).map_err(|e| format!("the library database could not be opened: {e}"))?);
         }
-        Ok(DbGuard(guard))
+        *self.owner.lock().unwrap() = Some(me);
+        Ok(DbGuard(guard, &self.owner))
     }
 }
 
-pub struct DbGuard<'a>(MutexGuard<'a, Option<Connection>>);
+pub struct DbGuard<'a>(MutexGuard<'a, Option<Connection>>, &'a Mutex<Option<std::thread::ThreadId>>);
+
+impl Drop for DbGuard<'_> {
+    fn drop(&mut self) {
+        *self.1.lock().unwrap() = None;
+    }
+}
 
 impl std::ops::Deref for DbGuard<'_> {
     type Target = Connection;
@@ -112,6 +126,17 @@ mod tests {
         for t in ["files", "images", "import_items", "import_jobs", "metadata", "overrides", "place_filters", "places", "skipped", "tracks", "videos"] {
             assert!(tables.iter().any(|x| x == t), "missing table {t}");
         }
+    }
+
+    #[test]
+    fn asking_twice_on_one_thread_is_an_error_not_a_hang() {
+        let db = Db::in_memory();
+        let held = db.conn().unwrap();
+        let again = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| db.conn().is_err()));
+        // A debug build panics (to be found in tests); a release build answers with an error.
+        assert!(again.unwrap_or(true));
+        drop(held);
+        assert!(db.conn().is_ok());
     }
 
     #[test]

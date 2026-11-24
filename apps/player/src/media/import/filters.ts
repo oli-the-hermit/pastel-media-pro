@@ -61,7 +61,7 @@ export function isExtra(rel: string): boolean {
 }
 
 /** The picture's lines as people name them: a 1920×800 scope film is "1080p". */
-function lines(c: Candidate): number | null {
+export function lines(c: { height?: number | null; width?: number | null }): number | null {
   if (c.height == null) return null;
   return c.width != null ? Math.max(c.height, Math.floor((c.width * 9) / 16)) : c.height;
 }
@@ -73,9 +73,10 @@ export function passes(f: Filters, c: Candidate): boolean {
   if (c.duration != null && ((f.minDuration != null && c.duration < f.minDuration) || (f.maxDuration != null && c.duration > f.maxDuration))) {
     return false;
   }
+  // A tier allows 10 %: a cropped 1080p release (1760×1072, 1904×1024) is "1080p", a DVD's 576 isn't 720p.
   if (c.kind === 'video' && f.minHeight != null) {
     const l = lines(c);
-    if (l != null && l < f.minHeight) return false;
+    if (l != null && l < f.minHeight * 0.9) return false;
   }
   return !(f.skipExtras && isExtra(c.rel));
 }
@@ -85,4 +86,13 @@ export function change(f: Filters, patch: Partial<Filters>): Filters {
   const next = { ...f, ...patch, preset: 'custom' as Preset };
   const same = (Object.keys(PRESETS) as (keyof typeof PRESETS)[]).find((k) => JSON.stringify({ ...PRESETS[k], preset: 'custom' }) === JSON.stringify(next));
   return same ? PRESETS[same] : next;
+}
+
+const TIERS = [2160, 1080, 720, 576, 480];
+
+/** The tier a picture is named by (10 % below counts): 1760×1072 → 1080, 768×576 → 576. */
+export function tier(c: { height?: number | null; width?: number | null }): number | null {
+  const l = lines(c);
+  if (l == null) return null;
+  return TIERS.find((t) => l >= t * 0.9) ?? l;
 }

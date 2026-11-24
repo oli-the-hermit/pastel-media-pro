@@ -407,6 +407,8 @@ impl FolderCounts {
 /// art beside it (a video). The error is what people read in the queue's list of what went wrong.
 pub fn read_file(f: &OnDisk, root: Option<&Path>, cache: &Path, counts: &FolderCounts) -> Result<Record, String> {
     let fp = fingerprint(&f.path, f.size).ok_or_else(|| match std::fs::File::open(&f.path) {
+        // Windows' sharing and lock violations: another program holds the file.
+        Err(e) if matches!(e.raw_os_error(), Some(32) | Some(33)) => "it's open in another program".to_string(),
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => "it can't be opened (in use or no permission)".to_string(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => "it isn't there any more".to_string(),
         Err(e) => e.to_string(),
@@ -656,7 +658,8 @@ fn finish(app: &AppHandle, id: i64, result: Result<Outcome, String>) {
                 v.state = "failed";
                 v.errors.push(e.clone());
             }
-            Ok(_) if cancelled => v.state = "cancelled",
+            // Stopped while its last files were being read: it did finish.
+            Ok(_) if cancelled && v.done < v.total => v.state = "cancelled",
             Ok(_) => v.state = "done",
         }
         // A quiet rescan that found something, or failed, shows its row.
@@ -840,16 +843,22 @@ fn plan_walk(known: &HashMap<String, (u64, i64, bool)>, skipped: &HashSet<String
     (todo, seen)
 }
 
-/// Flags the files of a place that weren't seen (never deletes them: "Can't find this file"); returns how many.
-pub fn flag_missing(conn: &Connection, place_id: i64, seen: &HashSet<String>) -> rusqlite::Result<u64> {
+/// Flags the files of a place that weren't seen (never deletes them: "Can't find this file"); returns their ids.
+/// Done before the new files are read, so a moved file finds its old row missing and takes it over.
+pub fn flag_missing(conn: &Connection, place_id: i64, seen: &HashSet<String>) -> rusqlite::Result<Vec<i64>> {
     let rows: Vec<(i64, String)> =
         conn.prepare("SELECT id, path FROM files WHERE place_id = ?1 AND missing = 0")?.query_map([place_id], |r| Ok((r.get(0)?, r.get(1)?)))?.flatten().collect();
-    let mut n = 0;
+    let mut ids = vec![];
     for (id, _) in rows.into_iter().filter(|(_, p)| !seen.contains(p)) {
         conn.execute("UPDATE files SET missing = 1 WHERE id = ?1", [id])?;
-        n += 1;
+        ids.push(id);
     }
-    Ok(n)
+    Ok(ids)
+}
+
+/// How many of these files are still missing (the others were moved and found again).
+pub fn still_missing(conn: &Connection, ids: &[i64]) -> u64 {
+    ids.iter().filter(|id| conn.query_row("SELECT missing FROM files WHERE id = ?1", [**id], |r| r.get::<_, bool>(0)).unwrap_or(false)).count() as u64
 }
 
 fn run_rescan(app: &AppHandle, id: i64, places: Vec<Place>) -> Result<Outcome, String> {
@@ -869,13 +878,14 @@ fn run_rescan(app: &AppHandle, id: i64, places: Vec<Place>) -> Result<Outcome, S
         if stop.load(Ordering::Relaxed) {
             break;
         }
+        let flagged = flag_missing(&*app.state::<Db>().conn()?, place.id, &seen).map_err(|e| e.to_string())?;
         let o = process(app, id, Some(&place), todo)?;
-        out.changed |= o.changed;
+        out.changed |= o.changed || !flagged.is_empty();
         let db = app.state::<Db>();
         let conn = db.conn()?;
-        let missing = flag_missing(&conn, place.id, &seen).map_err(|e| e.to_string())?;
+        let missing = still_missing(&conn, &flagged);
         let _ = conn.execute("UPDATE places SET last_scan_at = ?2 WHERE id = ?1", params![place.id, db::now()]);
-        out.changed |= missing > 0;
+        drop(conn);
         update(app, id, |v| v.missing += missing);
     }
     Ok(out)
@@ -884,10 +894,28 @@ fn run_rescan(app: &AppHandle, id: i64, places: Vec<Place>) -> Result<Outcome, S
 // ---------------------------------------------------------------------------------------------------------------
 // Commands
 
+/// Automated runs of a debug build answer the dialogs from a file (`PASTEL_PICK_FILE`: one path per line, read at
+/// each pick; empty for Cancel), so no dialog opens on the screen. Release builds never read it.
+fn scripted_pick() -> Option<Vec<String>> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let file = std::env::var_os("PASTEL_PICK_FILE")?;
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    Some(text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+}
+
+fn canonical(p: &str) -> Option<String> {
+    PathBuf::from(p).canonicalize().ok().map(|p| path_string(&p))
+}
+
 /// Picks a folder in Windows' dialog: its path, or nothing when cancelled.
 #[tauri::command]
 pub async fn import_pick_folder(app: AppHandle, title: String) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
+    if let Some(lines) = scripted_pick() {
+        return lines.first().and_then(|p| canonical(p));
+    }
     let picked = app.dialog().file().set_title(title).blocking_pick_folder()?;
     picked.into_path().ok().and_then(|p| p.canonicalize().ok()).map(|p| path_string(&p))
 }
@@ -896,6 +924,9 @@ pub async fn import_pick_folder(app: AppHandle, title: String) -> Option<String>
 #[tauri::command]
 pub async fn import_pick_files(app: AppHandle, title: String, audio: String, video: String) -> Vec<String> {
     use tauri_plugin_dialog::DialogExt;
+    if let Some(lines) = scripted_pick() {
+        return lines.iter().filter_map(|p| canonical(p)).collect();
+    }
     let all: Vec<&str> = formats::extensions(MediaKind::Audio).into_iter().chain(formats::extensions(MediaKind::Video)).collect();
     let picked = app
         .dialog()
@@ -1006,6 +1037,8 @@ pub fn import_start(app: AppHandle, request: ImportRequest) -> Result<JobView, S
             }
             let filters = load_filters(&tx, id).unwrap_or_else(|| request.filters.clone());
             tx.commit().map_err(|e| e.to_string())?;
+            // The connection is let go first: refreshing the places takes it again.
+            drop(conn);
             library::refresh_places(&app);
             Some(Place { id, root: PathBuf::from(place_root), filters })
         }
@@ -1173,11 +1206,13 @@ mod tests {
         root
     }
 
+    /// A rescan as the job runs it: walk, flag what is gone, read what is new or changed, count what is still gone.
     fn import_all(conn: &mut Connection, place: &Place, cache: &Path) -> (u64, u64) {
         let stop = AtomicBool::new(false);
         let (todo, seen) = plan_rescan(conn, place, &stop);
         let counts = FolderCounts::default();
         let tx = conn.transaction().unwrap();
+        let flagged = flag_missing(&tx, place.id, &seen).unwrap();
         let mut added = 0;
         for f in &todo {
             let rec = read_file(f, Some(&place.root), cache, &counts).unwrap();
@@ -1185,7 +1220,7 @@ mod tests {
                 added += 1;
             }
         }
-        let missing = flag_missing(&tx, place.id, &seen).unwrap();
+        let missing = still_missing(&tx, &flagged);
         tx.commit().unwrap();
         (added, missing)
     }
@@ -1223,11 +1258,8 @@ mod tests {
         // The episode is renamed: same bytes, new name. Its row (and id) is kept, under the new path.
         let id_before: i64 = conn.query_row("SELECT id FROM files WHERE path LIKE '%Dark.S01E01.mkv'", [], |r| r.get(0)).unwrap();
         std::fs::rename(root.join("Dark/Season 1/Dark.S01E01.mkv"), root.join("Dark/Season 1/Dark - S01E01 - Secrets.mkv")).unwrap();
-        // First the old path is seen gone, then the new one relinks to it.
-        let stop = AtomicBool::new(false);
-        let (_, seen) = plan_rescan(&conn, &place, &stop);
-        assert_eq!(flag_missing(&conn, place.id, &seen).unwrap(), 1);
-        assert_eq!(import_all(&mut conn, &place, &cache), (0, 0), "relinked, not added");
+        // One rescan: the old path is flagged gone, then the new one takes its row.
+        assert_eq!(import_all(&mut conn, &place, &cache), (0, 0), "relinked, not added, and nothing left missing");
         let id_after: i64 = conn.query_row("SELECT id FROM files WHERE path LIKE '%Secrets.mkv' AND missing = 0", [], |r| r.get(0)).unwrap();
         assert_eq!(id_before, id_after);
 

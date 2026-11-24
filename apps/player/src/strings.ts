@@ -169,8 +169,13 @@ export const strings = {
     checking: (what: string) => `Checking ${what}`,
     allFolders: 'your folders',
     files: (n: number) => (n === 1 ? '1 file' : `${n.toLocaleString()} files`),
-    result: (added: number, updated: number, missing: number) =>
-      [added > 0 ? `${added.toLocaleString()} added` : '', updated > 0 ? `${updated.toLocaleString()} updated` : '', missing > 0 ? `${missing.toLocaleString()} can't be found` : '']
+    result: (added: number, updated: number, missing: number, failed = 0) =>
+      [
+        added > 0 ? `${added.toLocaleString()} added` : '',
+        updated > 0 ? `${updated.toLocaleString()} updated` : '',
+        missing > 0 ? `${missing.toLocaleString()} can't be found` : '',
+        failed > 0 ? `${failed.toLocaleString()} couldn't be read` : '',
+      ]
         .filter(Boolean)
         .join(' · ') || 'Nothing new',
     stopped: (done: number, total: number) => `Stopped after ${done.toLocaleString()} of ${total.toLocaleString()}`,

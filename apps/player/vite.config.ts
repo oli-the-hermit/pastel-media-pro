@@ -17,6 +17,8 @@ export default defineConfig({
     port: 3300,
     strictPort: true,
     fs: { allow: [searchForWorkspaceRoot(process.cwd()), designSystem] },
+    // Dev only: a windowless debug build answers the page's IPC here (src-tauri/src/bridge.rs, src/devBridge.ts).
+    proxy: { '/__bridge': { target: `http://127.0.0.1:${process.env.PASTEL_BRIDGE_PORT ?? 3399}`, rewrite: (p) => p.replace(/^\/__bridge/, '') } },
   },
   build: { outDir: 'dist', emptyOutDir: true, target: 'es2022' },
 });

@@ -1,5 +1,7 @@
 use tauri::{DragDropEvent, Manager, WindowEvent};
 
+#[cfg(debug_assertions)]
+mod bridge;
 pub mod db;
 mod engine;
 pub mod filters;
@@ -27,11 +29,16 @@ pub fn run() {
         .manage(import::ImportState::default())
         .manage(open::OpenState::default())
         .setup(|app| {
-            engine::start(app.handle());
             // Where library.db lives; it is opened on the library's first use, not now (D16).
             if let Ok(dir) = app.path().app_data_dir() {
                 app.state::<db::Db>().set_path(dir.join("library.db"));
             }
+            // A debug build checked from a browser: no window, no engine; the page's IPC comes over localhost.
+            #[cfg(debug_assertions)]
+            if bridge::start(app.handle()) {
+                return Ok(());
+            }
+            engine::start(app.handle());
             open::receive_launch(app.handle());
             Ok(())
         })

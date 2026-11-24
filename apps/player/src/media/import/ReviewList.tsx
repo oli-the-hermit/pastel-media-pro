@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, EmptyState, ProgressBar, SegmentedControl, Select, formatBytes, formatTime } from '@pastel-studio/react';
 import { strings } from '../../strings';
 import type { Fact, Found } from './api';
-import { change, passes, PRESETS, type Filters, type MediaKind, type Preset } from './filters';
+import { change, passes, PRESETS, tier, type Filters, type MediaKind, type Preset } from './filters';
 
 /** A row of the review list: what discovery found, and what the quick probe has said about it so far. */
 export interface Row extends Found {
@@ -58,9 +58,8 @@ const pick = (v: string) => (v === 'any' ? null : Number(v));
 const valueOf = (n: number | null) => (n == null ? 'any' : String(n));
 
 function picture(r: Row): string {
-  if (r.height == null) return strings.review.unknown;
-  const lines = r.width != null ? Math.max(r.height, Math.floor((r.width * 9) / 16)) : r.height;
-  return strings.review.lines(lines);
+  const t = tier(r);
+  return t == null ? strings.review.unknown : strings.review.lines(t);
 }
 
 /**

@@ -13,6 +13,11 @@ import { paintCachedTheme } from './theme';
 // Every window paints in the remembered look before its first frame.
 paintCachedTheme();
 
+// Dev only: `?bridge` runs this page in a plain browser against a windowless debug build (src/devBridge.ts).
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('bridge')) {
+  (await import('./devBridge')).installBridge();
+}
+
 // The mini player window loads the same bundle at index.html#mini.
 const isMiniWindow = window.location.hash === MINI_WINDOW_HASH;
 

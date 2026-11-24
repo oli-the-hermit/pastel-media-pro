@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, formatDuration } from '@pastel-studio/react';
+import { Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, formatDuration, formatTime } from '@pastel-studio/react';
 import { MediaGrid, MediaTile } from '@pastel-media/media-ui';
 import { strings } from '../strings';
+import { tier } from './import/filters';
 import { usePoster, type LibSeries, type LibVideo, type Library } from './library';
 import { usePlayback } from './playback';
 import { useDrillIn } from './useDrillIn';
@@ -62,10 +63,10 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, onBack, b
 
 /** A film's facts: year, length, genres, picture, file. */
 function movieFacts(v: LibVideo): string[] {
-  const lines = v.height != null ? Math.max(v.height, v.width != null ? Math.floor((v.width * 9) / 16) : 0) : null;
+  const lines = tier(v);
   return [
     v.year ? String(v.year) : '',
-    v.duration ? formatDuration(v.duration) : '',
+    v.duration ? (v.duration < 60 ? formatTime(v.duration) : formatDuration(v.duration)) : '',
     (v.genres ?? []).join(', '),
     lines ? strings.review.lines(lines) : '',
     v.fileName,

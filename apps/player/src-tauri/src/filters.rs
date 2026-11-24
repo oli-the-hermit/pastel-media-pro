@@ -102,8 +102,9 @@ pub fn passes(f: &Filters, c: &Candidate) -> bool {
         }
     }
     if c.kind == "video" {
+        // A tier allows 10 %: a cropped 1080p release (1760×1072, 1904×1024) is "1080p", a DVD's 576 isn't 720p.
         if let (Some(min), Some(l)) = (f.min_height, lines(c)) {
-            if l < min {
+            if (l as f64) < min as f64 * 0.9 {
                 return false;
             }
         }
