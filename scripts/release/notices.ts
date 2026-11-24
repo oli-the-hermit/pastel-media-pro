@@ -197,7 +197,7 @@ function lgplText(): string {
   const path = dir ? join(browsers, dir, 'COPYING.LGPLv2.1') : '';
   if (path && existsSync(path)) return readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
   const committed = join(outDir, 'LGPL-2.1.txt');
-  if (existsSync(committed)) return readFileSync(committed, 'utf8');
+  if (existsSync(committed)) return readFileSync(committed, 'utf8').replace(/\r\n/g, '\n');
   throw new Error('No LGPL-2.1 text found: run npm run visual:install (it brings one) or restore apps/player/public/licenses/LGPL-2.1.txt');
 }
 
@@ -207,7 +207,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     [join(outDir, 'LGPL-2.1.txt'), lgplText()],
   ];
   if (process.argv.includes('--check')) {
-    const stale = outputs.filter(([path, text]) => !existsSync(path) || readFileSync(path, 'utf8') !== text).map(([path]) => path);
+    // Line endings aside: a Windows checkout turns the committed files' LF into CRLF.
+    const stale = outputs.filter(([path, text]) => !existsSync(path) || readFileSync(path, 'utf8').replace(/\r\n/g, '\n') !== text).map(([path]) => path);
     if (stale.length) {
       console.error(`Out of date (run npm run notices): ${stale.join(', ')}`);
       process.exit(1);
