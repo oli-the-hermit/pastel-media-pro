@@ -1,10 +1,15 @@
 use tauri::{DragDropEvent, Manager, WindowEvent};
 
+pub mod db;
 mod engine;
+pub mod filters;
 mod formats;
+pub mod import;
 pub mod library;
+pub mod matching;
 mod open;
 pub mod parse;
+pub mod probe;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,10 +23,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(engine::Engine::default())
         .manage(library::LibraryState::default())
+        .manage(db::Db::default())
+        .manage(import::ImportState::default())
         .manage(open::OpenState::default())
         .setup(|app| {
             engine::start(app.handle());
-            library::load_folders(app.handle());
+            // Where library.db lives; it is opened on the library's first use, not now (D16).
+            if let Ok(dir) = app.path().app_data_dir() {
+                app.state::<db::Db>().set_path(dir.join("library.db"));
+            }
             open::receive_launch(app.handle());
             Ok(())
         })
@@ -32,9 +42,20 @@ pub fn run() {
             engine::engine_status,
             library::library_get,
             library::library_cover,
-            library::library_folders,
-            library::library_add_folder,
-            library::library_remove_folder,
+            library::library_image,
+            import::import_pick_folder,
+            import::import_pick_files,
+            import::import_discover,
+            import::import_discover_cancel,
+            import::import_start,
+            import::import_jobs,
+            import::import_stop,
+            import::import_retry,
+            import::import_dismiss,
+            import::import_clear_finished,
+            import::places_list,
+            import::places_rescan,
+            import::places_remove,
             open::open_launched,
             open::open_take,
             open::open_pick,

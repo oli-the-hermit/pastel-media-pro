@@ -110,6 +110,7 @@ fn describe(path: &Path, id: String) -> Option<Opened> {
                 episode_title: parsed.episode_title,
                 file_name: name,
                 path: shown,
+                ..Default::default()
             }))
         }
     }
