@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   AccountMenu, AppShell, AppShellPage, EmptyState, IconLogOut, IconPlay, Modal, NavRail, NowPlayingBar, ToastRegion, useDrawer, useToasts,
 } from '@pastel-studio/react';
+import { ImportProvider } from './media/import/ImportFlow';
+import { ImportQueue } from './media/import/ImportQueue';
 import { NoFolders } from './media/LibraryFolders';
-import { useLibrary, type Library } from './media/library';
+import { isEmptyLibrary, useLibrary, type Library } from './media/library';
 import { MusicPage } from './media/MusicPage';
 import { pickFiles, useOpenedFiles } from './media/opened';
 import { PlaybackProvider, usePlayback } from './media/playback';
@@ -32,7 +34,7 @@ interface PageContentProps {
 function PageContent({ page, library, onOpenFiles }: PageContentProps) {
   if (page === 'player') return <PlayerPage library={library} onOpenFiles={onOpenFiles} />;
   // Nothing to read yet: the media pages ask for one folder (ux.md, "capture before organising").
-  if ((page === 'music' || page === 'streaming') && library && library.roots.length === 0) return <NoFolders />;
+  if ((page === 'music' || page === 'streaming') && library && isEmptyLibrary(library)) return <NoFolders preset={page === 'music' ? 'music' : 'movies'} />;
   if (page === 'streaming') return <StreamingPage library={library} />;
   if (page === 'music') return library ? <MusicPage library={library} /> : <EmptyState>{strings.library.reading}</EmptyState>;
   return <EmptyState>{strings.pages[page].empty}</EmptyState>;
@@ -117,6 +119,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
 
   return (
     <NotifyContext.Provider value={showToast}>
+      <ImportProvider>
       <AppShell
         surface={video && page === 'player' ? 'transparent' : 'solid'}
         nav={
@@ -139,6 +142,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
         bottomBar={playback.current && page !== 'player' ? <NowPlaying library={library} /> : undefined}
         overlays={
           <>
+            <ImportQueue />
             <ToastRegion toasts={toasts} />
             <Modal isOpen={helpOpen} title={strings.help.title} onClose={() => setHelpOpen(false)}>
               <HelpView />
@@ -152,6 +156,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
           </AppShellPage>
         ))}
       </AppShell>
+      </ImportProvider>
     </NotifyContext.Provider>
   );
 }

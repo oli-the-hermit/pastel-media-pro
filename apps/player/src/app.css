@@ -312,3 +312,172 @@ body {
   font-size: var(--ps-font-size-xs);
   white-space: nowrap;
 }
+
+/* A media page's first line: where it comes from (or its views), and Add a folder / Add files. */
+.mp-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ps-space-12);
+}
+
+.mp-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ps-space-8);
+}
+
+.mp-folder-facts {
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-text-3);
+}
+
+/* A film's synopsis on its title page (from the .nfo beside it). */
+.mp-title-overview {
+  max-width: 70ch;
+  margin: 0 0 var(--ps-space-8);
+  color: var(--ps-text-2);
+}
+
+.mp-title-poster {
+  overflow: hidden;
+}
+
+.mp-title-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The review list (ux.md §2b): filters, a status line, the files (only the rows in view are drawn), and Add. */
+.mp-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+  min-width: min(860px, 80vw);
+}
+
+.mp-review-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+}
+
+.mp-review-filters > :first-child {
+  align-self: flex-start;
+}
+
+.mp-review-selects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--ps-space-8);
+}
+
+.mp-review-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-8) var(--ps-space-16);
+}
+
+.mp-review-checks label,
+.mp-review-footer label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ps-space-8);
+  color: var(--ps-text-2);
+  font-size: var(--ps-font-size-sm);
+}
+
+.mp-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-4) var(--ps-space-16);
+  color: var(--ps-text-3);
+  font-size: var(--ps-font-size-xs);
+}
+
+.mp-review-table {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-2);
+  overflow: hidden;
+}
+
+.mp-review-body {
+  height: min(44vh, 420px);
+  overflow-y: auto;
+}
+
+.mp-review-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 64px 80px 80px 64px;
+  align-items: center;
+  gap: var(--ps-space-8);
+  padding: 0 var(--ps-space-12) 0 var(--ps-space-4);
+  color: var(--ps-text-2);
+  font-size: var(--ps-font-size-sm);
+}
+
+.mp-review-head {
+  height: 36px;
+  color: var(--ps-text-3);
+  font-size: var(--ps-font-size-xs);
+  font-weight: var(--ps-font-weight-semibold);
+}
+
+.mp-review-check {
+  display: grid;
+  place-items: center;
+}
+
+.mp-review-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mp-review-file,
+.mp-review-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-review-file {
+  color: var(--ps-text-1);
+}
+
+.mp-review-folder {
+  color: var(--ps-text-3);
+  font-size: var(--ps-font-size-xs);
+}
+
+.mp-review-row.is-in-library .mp-review-file {
+  color: var(--ps-text-3);
+}
+
+.mp-review-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-review-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ps-space-12);
+}
+
+.mp-review-actions {
+  display: flex;
+  gap: var(--ps-space-8);
+}
+
+/* The import queue's card clears the now-playing bar. */
+.mp-queue {
+  --ps-transfer-card-bottom: calc(var(--ps-space-16) * 5);
+}

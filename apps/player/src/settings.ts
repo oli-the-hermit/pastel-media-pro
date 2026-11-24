@@ -11,9 +11,11 @@ export interface Settings {
   startOn: StartPage;
   /** Off hides the Streaming tab, and nothing of it loads. */
   showStreaming: boolean;
+  /** Adding to the library shows the files found first, to check (ux.md §2b); its own checkbox turns it off. */
+  showReview: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { startOn: 'player', showStreaming: true };
+export const DEFAULT_SETTINGS: Settings = { startOn: 'player', showStreaming: true, showReview: true };
 
 const KEY = 'pastelmedia_settings';
 const LAST_PAGE_KEY = 'pastelmedia_last_page';
@@ -32,6 +34,7 @@ function read(): Settings {
     return {
       startOn: (['player', 'music', 'streaming', 'last'] as const).includes(saved.startOn as StartPage) ? (saved.startOn as StartPage) : DEFAULT_SETTINGS.startOn,
       showStreaming: typeof saved.showStreaming === 'boolean' ? saved.showStreaming : DEFAULT_SETTINGS.showStreaming,
+      showReview: typeof saved.showReview === 'boolean' ? saved.showReview : DEFAULT_SETTINGS.showReview,
     };
   } catch {
     return DEFAULT_SETTINGS;

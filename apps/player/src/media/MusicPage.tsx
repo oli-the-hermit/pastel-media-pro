@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { AlbumPage, EmptyState, IconMusic, TextButton } from '@pastel-studio/react';
 import { MediaGrid, MediaTile } from '@pastel-media/media-ui';
 import { strings } from '../strings';
+import { AddButtons } from './LibraryFolders';
 import { toAlbum, useCover, type LibAlbum, type LibTrack, type Library } from './library';
 import { usePlayback } from './playback';
 import { useDrillIn } from './useDrillIn';
@@ -59,11 +60,21 @@ export function MusicPage({ library }: { library: Library }) {
   const byId = useMemo(() => new Map(library.tracks.map((t) => [t.id, t])), [library]);
   const open = library.albums.find((a) => a.id === openId);
 
-  if (library.albums.length === 0) return <EmptyState>{strings.pages.music.empty}</EmptyState>;
+  if (library.albums.length === 0) {
+    return (
+      <EmptyState className="mp-player-empty">
+        <p>{strings.pages.music.empty}</p>
+        <AddButtons preset="music" primary />
+      </EmptyState>
+    );
+  }
   if (open) return <OpenAlbum album={open} tracks={open.trackIds.map((id) => byId.get(id)!)} onBack={close} />;
   return (
     <div className="mp-page">
-      <p className="mp-note">{strings.library.from(library.roots)}</p>
+      <div className="mp-page-head">
+        <p className="mp-note">{strings.library.from(library.roots)}</p>
+        <AddButtons preset="music" />
+      </div>
       <MediaGrid aria-label={strings.music.albums}>
         {library.albums.map((a) => (
           <AlbumTile key={a.id} album={a} current={!!playback.current && a.trackIds.includes(playback.current.id)} onOpen={() => openAlbum(a.id)} />

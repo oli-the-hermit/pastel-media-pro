@@ -1,8 +1,8 @@
 /**
- * The library, an early form of Phase 3's: in the desktop app, the folders added in Settings → Library (and a dev
- * build's `media_to_test`), read by the Rust side (`library.rs`); in the browser, the dev server's test folder
- * (`apps/player/test-media.ts`, same scanner, files as URLs). It is read the first time a page needs it, never at
- * launch, so opening a file stays instant (D16), and again after the folders change.
+ * The library: in the desktop app, what the import put in `library.db` (Rust `library.rs`, `import.rs`); in the
+ * browser, the dev server's test folder (`apps/player/test-media.ts`, the same grouping, files as URLs). It is read
+ * the first time a page needs it, never at launch, so opening a file stays instant (D16), and again after an import,
+ * a rescan or a removed folder changes it.
  */
 import { useEffect, useState } from 'react';
 import type { Album, Track } from '@pastel-studio/react';
@@ -45,16 +45,27 @@ export interface LibVideo {
   episodeTitle: string | null;
   fileName: string;
   path: string;
+  /** Seconds, from the quick probe; absent in the browser. */
+  duration?: number | null;
+  width?: number | null;
+  height?: number | null;
+  /** From a `.nfo` or a sidecar beside the file. */
+  overview?: string | null;
+  genres?: string[];
+  /** Images in the library's cache (`usePoster`), from the art beside the file. */
+  poster?: string | null;
+  backdrop?: string | null;
 }
 
 export interface LibSeries {
   id: string;
   title: string;
+  poster?: string | null;
   episodes: LibVideo[];
 }
 
 export interface Library {
-  /** The folders that were read; empty when there are none. */
+  /** The folders it comes from; empty when there are none (files can still be added on their own). */
   roots: string[];
   tracks: LibTrack[];
   albums: LibAlbum[];
@@ -64,6 +75,9 @@ export interface Library {
 }
 
 export const EMPTY_LIBRARY: Library = { roots: [], tracks: [], albums: [], movies: [], series: [], scanMs: 0 };
+
+/** Nothing in it, and no folder to read: the media pages ask for one. */
+export const isEmptyLibrary = (l: Library) => l.roots.length === 0 && l.tracks.length === 0 && l.movies.length === 0 && l.series.length === 0;
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return (await import('@tauri-apps/api/core')).invoke<T>(cmd, args);
@@ -82,13 +96,15 @@ async function fetchWebLibrary(): Promise<Library> {
   return lib;
 }
 
-// The library is read again after the folders change: every hook that shows it follows.
+// The library is read again after it changes: every hook that shows it follows.
 let version = 0;
 const changed = new Set<() => void>();
 
-function libraryChanged() {
+/** The library changed (an import, a rescan, a removed folder): pages that show it read it again. */
+export function libraryChanged() {
   version += 1;
   covers.clear();
+  images.clear();
   changed.forEach((l) => l());
 }
 
@@ -127,35 +143,6 @@ export function useLibrary(needed: boolean): Library | null {
 /** Whether this build can add folders: the desktop app. */
 export const canAddFolders = () => isDesktop();
 
-/** A folder added in Settings → Library, and whether it is there now (a drive can be unplugged). */
-export interface LibraryFolder {
-  path: string;
-  found: boolean;
-}
-
-/** The folders added in Settings → Library. */
-export async function libraryFolders(): Promise<LibraryFolder[]> {
-  if (!isDesktop()) return [];
-  return invoke<LibraryFolder[]>('library_folders');
-}
-
-const pathsOf = (list: LibraryFolder[]) => list.map((f) => f.path).join('\n');
-
-/** Windows' folder dialog; resolves to the new list (unchanged when cancelled). */
-export async function addLibraryFolder(): Promise<LibraryFolder[]> {
-  const before = await libraryFolders();
-  const after = await invoke<LibraryFolder[]>('library_add_folder', { title: strings.library.addTitle });
-  if (pathsOf(after) !== pathsOf(before)) libraryChanged();
-  return after;
-}
-
-/** Stops reading a folder; its files are untouched. */
-export async function removeLibraryFolder(folder: string): Promise<LibraryFolder[]> {
-  const after = await invoke<LibraryFolder[]>('library_remove_folder', { folder });
-  libraryChanged();
-  return after;
-}
-
 const covers = new Map<string, Promise<string | undefined>>();
 
 /** An album's cover: a data URL from the desktop app (fetched once per album), or the dev server's URL. */
@@ -174,6 +161,24 @@ export function useCover(albumId: string): string | undefined {
     };
   }, [albumId]);
   return cover;
+}
+
+const images = new Map<string, Promise<string | undefined>>();
+
+/** A poster or backdrop from the library's image cache (made once by the import), or nothing. */
+export function usePoster(hash: string | null | undefined): string | undefined {
+  const [url, setUrl] = useState<string | undefined>();
+  useEffect(() => {
+    setUrl(undefined);
+    if (!hash || !isDesktop()) return;
+    let alive = true;
+    if (!images.has(hash)) images.set(hash, invoke<string | null>('library_image', { hash }).then((c) => c ?? undefined, () => undefined));
+    void images.get(hash)!.then((u) => alive && setUrl(u));
+    return () => {
+      alive = false;
+    };
+  }, [hash]);
+  return url;
 }
 
 const openedCovers = new Map<string, Promise<string | undefined>>();

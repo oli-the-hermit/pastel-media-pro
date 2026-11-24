@@ -1,25 +1,29 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton } from '@pastel-studio/react';
+import { Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, formatDuration } from '@pastel-studio/react';
 import { MediaGrid, MediaTile } from '@pastel-media/media-ui';
 import { strings } from '../strings';
-import type { LibSeries, LibVideo, Library } from './library';
+import { usePoster, type LibSeries, type LibVideo, type Library } from './library';
 import { usePlayback } from './playback';
 import { useDrillIn } from './useDrillIn';
 
 /**
- * A film's or a series' title page: the poster, the name and its facts, Play, then what it holds. An early form of
- * Phase 5's details page; artwork, synopsis and the rest come with metadata.
+ * A film's or a series' title page: the poster, the name and its facts, the synopsis, Play, then what it holds. An
+ * early form of Phase 5's details page: the poster and synopsis come from the art and `.nfo` beside the files.
  */
-function TitlePage({ kind, title, facts, icon, play, onBack, backLabel, children }: {
+function TitlePage({ kind, title, facts, icon, poster, overview, play, onBack, backLabel, children }: {
   kind: string;
   title: string;
   facts: string[];
   icon: ReactNode;
+  /** An image hash from the library's cache. */
+  poster?: string | null;
+  overview?: string | null;
   play: { label: string; onClick: () => void } | null;
   onBack: () => void;
   backLabel: string;
   children?: ReactNode;
 }) {
+  const image = usePoster(poster);
   return (
     <div className="mp-page">
       <div>
@@ -28,7 +32,9 @@ function TitlePage({ kind, title, facts, icon, play, onBack, backLabel, children
         </TextButton>
       </div>
       <header className="mp-title">
-        <div className="mp-title-poster" aria-hidden="true">{icon}</div>
+        <div className="mp-title-poster" aria-hidden="true">
+          {image ? <img src={image} alt="" draggable={false} /> : icon}
+        </div>
         <div className="mp-title-main">
           <span className="mp-title-kind">{kind}</span>
           <h2 className="mp-title-name">{title}</h2>
@@ -39,6 +45,7 @@ function TitlePage({ kind, title, facts, icon, play, onBack, backLabel, children
               ))}
             </p>
           )}
+          {overview ? <p className="mp-title-overview">{overview}</p> : undefined}
           {play && (
             <div>
               <Button variant="primary" icon={<IconPlay />} onClick={play.onClick}>
@@ -49,6 +56,53 @@ function TitlePage({ kind, title, facts, icon, play, onBack, backLabel, children
         </div>
       </header>
       {children}
+    </div>
+  );
+}
+
+/** A film's facts: year, length, genres, picture, file. */
+function movieFacts(v: LibVideo): string[] {
+  const lines = v.height != null ? Math.max(v.height, v.width != null ? Math.floor((v.width * 9) / 16) : 0) : null;
+  return [
+    v.year ? String(v.year) : '',
+    v.duration ? formatDuration(v.duration) : '',
+    (v.genres ?? []).join(', '),
+    lines ? strings.review.lines(lines) : '',
+    v.fileName,
+  ].filter(Boolean);
+}
+
+function MovieTile({ video, current, onOpen }: { video: LibVideo; current: boolean; onOpen: () => void }) {
+  const poster = usePoster(video.poster);
+  return (
+    <div role="listitem">
+      <MediaTile
+        shape="poster"
+        title={video.title || video.fileName}
+        subtitle={video.year ? String(video.year) : undefined}
+        cover={poster}
+        icon={<IconFileVideo size={32} />}
+        current={current}
+        data-tile-id={video.id}
+        onClick={onOpen}
+      />
+    </div>
+  );
+}
+
+function SeriesTile({ series, onOpen }: { series: LibSeries; onOpen: () => void }) {
+  const poster = usePoster(series.poster);
+  return (
+    <div role="listitem">
+      <MediaTile
+        shape="poster"
+        title={series.title || strings.videos.unknownSeries}
+        subtitle={strings.videos.episodes(series.episodes.length)}
+        cover={poster}
+        icon={<IconMonitor size={32} />}
+        data-tile-id={series.id}
+        onClick={onOpen}
+      />
     </div>
   );
 }
@@ -64,8 +118,10 @@ export function MoviesPage({ library }: { library: Library }) {
       <TitlePage
         kind={strings.videos.film}
         title={open.title || open.fileName}
-        facts={[open.year ? String(open.year) : '', open.fileName].filter(Boolean)}
+        facts={movieFacts(open)}
         icon={<IconFileVideo size={48} />}
+        poster={open.poster}
+        overview={open.overview}
         play={{ label: strings.videos.play, onClick: () => playback.playVideo(open) }}
         onBack={close}
         backLabel={strings.videos.allMovies}
@@ -77,17 +133,7 @@ export function MoviesPage({ library }: { library: Library }) {
       <p className="mp-note">{strings.library.from(library.roots)}</p>
       <MediaGrid aria-label={strings.streaming.views.movies.label}>
         {library.movies.map((v) => (
-          <div role="listitem" key={v.id}>
-            <MediaTile
-              shape="poster"
-              title={v.title || v.fileName}
-              subtitle={v.year ? String(v.year) : undefined}
-              icon={<IconFileVideo size={32} />}
-              current={playback.video?.id === v.id}
-              data-tile-id={v.id}
-              onClick={() => openMovie(v.id)}
-            />
-          </div>
+          <MovieTile key={v.id} video={v} current={playback.video?.id === v.id} onOpen={() => openMovie(v.id)} />
         ))}
       </MediaGrid>
     </div>
@@ -118,6 +164,7 @@ function SeriesTitle({ series, onBack }: { series: LibSeries; onBack: () => void
       title={series.title || strings.videos.unknownSeries}
       facts={[realSeasons > 1 ? strings.videos.seasons(realSeasons) : '', strings.videos.episodes(series.episodes.length)].filter(Boolean)}
       icon={<IconMonitor size={48} />}
+      poster={series.poster}
       play={first ? { label: strings.videos.playFrom(first.season, first.episode), onClick: () => playback.playVideo(first) } : null}
       onBack={onBack}
       backLabel={strings.videos.allSeries}
@@ -164,16 +211,7 @@ export function SeriesPage({ library }: { library: Library }) {
       <p className="mp-note">{strings.library.from(library.roots)}</p>
       <MediaGrid aria-label={strings.streaming.views.series.label}>
         {library.series.map((s) => (
-          <div role="listitem" key={s.id}>
-            <MediaTile
-              shape="poster"
-              title={s.title || strings.videos.unknownSeries}
-              subtitle={strings.videos.episodes(s.episodes.length)}
-              icon={<IconMonitor size={32} />}
-              data-tile-id={s.id}
-              onClick={() => openSeries(s.id)}
-            />
-          </div>
+          <SeriesTile key={s.id} series={s} onOpen={() => openSeries(s.id)} />
         ))}
       </MediaGrid>
     </div>

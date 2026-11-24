@@ -1,5 +1,6 @@
 import { IconButton, IconHelp, IconMiniPlayer, TopBar } from '@pastel-studio/react';
 import { DesktopWindowControls, DRAG_REGION, isDesktop } from '@pastel-studio/desktop';
+import { ImportIndicator } from '../media/import/ImportQueue';
 import { strings } from '../strings';
 import { useMiniWindow } from './useMiniWindow';
 
@@ -21,6 +22,7 @@ export function AppTopBar({ title, onOpenHelp }: AppTopBarProps) {
       dragRegionProps={desktop ? DRAG_REGION : undefined}
       tools={
         <>
+          <ImportIndicator />
           {mini.supported && (
             <IconButton label={mini.open ? strings.topBar.closeMini : strings.topBar.openMini} pressed={mini.open} onClick={mini.toggle}>
               <IconMiniPlayer size={19} />

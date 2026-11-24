@@ -978,6 +978,9 @@ pub struct ImportRequest {
     #[serde(default)]
     pub skipped: Vec<String>,
     pub filters: Filters,
+    /// No review list: the job itself finds the folder's files and keeps those that pass the filters.
+    #[serde(default)]
+    pub direct: bool,
 }
 
 /// Starts importing: the job joins the queue and its row shows at once.
@@ -1015,8 +1018,11 @@ pub fn import_start(app: AppHandle, request: ImportRequest) -> Result<JobView, S
         total: request.files.len() as u64,
         ..Default::default()
     };
-    let files: Vec<PathBuf> = request.files.iter().map(PathBuf::from).collect();
     let place_id = place.as_ref().map(|p| p.id);
+    if let (true, Some(place)) = (request.direct, place.clone()) {
+        return enqueue(&app, view, place_id, move |job| Work::Rescan { job, places: vec![place] });
+    }
+    let files: Vec<PathBuf> = request.files.iter().map(PathBuf::from).collect();
     enqueue(&app, view, place_id, move |job| Work::Import { job, place, files })
 }
 
