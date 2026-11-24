@@ -46,8 +46,22 @@ export const strings = {
     profileEmpty: 'Your name, picture and PIN will live here.',
     appearance: 'Appearance',
     settings: 'Settings',
+    about: 'About',
     switchProfile: 'Switch profile',
     switchProfileLater: 'More profiles arrive in a later version.',
+  },
+  about: {
+    version: (v: string) => `Version ${v} (alpha)`,
+    description: 'A local media player for music and video. Nothing leaves your computer.',
+    licenceLabel: 'Licence',
+    licence: 'Pastel Media Pro is free software under the MIT licence, built on the Pastel Studio design system (MIT).',
+    source: 'github.com/oli-the-hermit/pastel-media-pro',
+    thirdPartyLabel: 'Third-party software',
+    libmpv:
+      'Media plays through libmpv and FFmpeg, under the GNU Lesser General Public License 2.1 or later. They ship as libmpv-2.dll beside the app, which you may replace with your own build. The notices say where their source code is.',
+    showNotices: 'Third-party notices',
+    showLgpl: 'LGPL 2.1 text',
+    textMissing: 'This text could not be loaded. It is also in the app’s source repository, under apps/player/public/licenses.',
   },
   settings: {
     ariaLabel: 'Settings',

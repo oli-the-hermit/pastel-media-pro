@@ -181,3 +181,45 @@ body {
   flex-direction: column;
   gap: var(--ps-space-4);
 }
+
+/* About: the version, the licence and the third-party notices (plan 10.2). */
+.mp-about p {
+  margin: 0;
+  color: var(--ps-text-2);
+}
+
+.mp-about-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+}
+
+.mp-about-head h2 {
+  margin: 0;
+  font-size: var(--ps-font-size-xl);
+  color: var(--ps-text-1);
+}
+
+.mp-about-url {
+  user-select: text;
+}
+
+.mp-about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-8);
+}
+
+.mp-about-text {
+  max-height: 40vh;
+  margin: 0;
+  padding: var(--ps-space-12);
+  overflow: auto;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-2);
+  color: var(--ps-text-2);
+  font-size: var(--ps-font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
