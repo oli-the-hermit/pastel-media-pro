@@ -10,6 +10,7 @@ import { engine, hasPicture, useEngine, type Engine } from './engine';
 import { playOf, recordPlay, resumePoint } from './history';
 import type { LibTrack, LibVideo } from './library';
 import type { Opened } from './opened';
+import { readLastSession, saveLastPosition, saveLastQueue } from './session';
 
 /** A file that could not be played: the player says so, with the engine's reason under Details. */
 export interface PlayFailure {
@@ -121,11 +122,20 @@ const playableFrom = (tracks: LibTrack[], start: number, step: 1 | -1) => {
   return -1;
 };
 
-export function PlaybackProvider({ children }: { children: React.ReactNode }) {
+/**
+ * `greet`: start with the last session's song (session.ts), paused where it was left, its queue around it. Off when
+ * the app was started with files, which play at once.
+ */
+export function PlaybackProvider({ children, greet = true }: { children: React.ReactNode; greet?: boolean }) {
   const native = isDesktop();
   const videoEl = useRef<HTMLVideoElement>(null);
-  const [queue, setQueue] = useState<LibTrack[]>([]);
-  const [index, setIndex] = useState(-1);
+  const [greeting] = useState(() => (greet ? readLastSession() : null));
+  const [queue, setQueue] = useState<LibTrack[]>(() => greeting?.queue ?? []);
+  const [index, setIndex] = useState(() => greeting?.index ?? -1);
+  // Where the song the player greets with waits; nothing once a file was loaded. The engine has no file until Play.
+  const [greetAt, setGreetAt] = useState<{ position: number; duration: number } | null>(() =>
+    greeting ? { position: greeting.position, duration: greeting.duration } : null,
+  );
   const [video, setVideo] = useState<LibVideo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string | null>(null);
@@ -154,17 +164,27 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     if (startAt.current > 0 && media.currentTime >= startAt.current - 5) startAt.current = 0;
   }
   const counted = useRef('');
+  // The song of a queue made on a page (not files the system handed over, which may not be in the library): it
+  // and its queue are what the player greets with next time.
+  const fromSystem = useRef(false);
+  const songPath = useRef('');
+  songPath.current = !video && index >= 0 && !fromSystem.current ? (queue[index]?.path ?? '') : '';
   const save = useCallback((ended = false) => {
     const a = at.current;
     if (!a.path || (!ended && startAt.current > 0)) return;
     recordPlay(a.path, a.position, a.duration, ended, counted.current !== a.path);
     counted.current = a.path;
+    if (a.path === songPath.current) saveLastPosition(a.path, a.position, a.duration);
   }, []);
+  useEffect(() => {
+    if (index >= 0 && queue.length > 0 && !fromSystem.current) saveLastQueue(queue, index);
+  }, [queue, index]);
 
   const load = useCallback(
     (path: string, start?: number) => {
       window.clearTimeout(stopTimer.current);
       setFailure(null);
+      setGreetAt(null);
       // Playing the same file again is one more play.
       if (counted.current === path) counted.current = '';
       startAt.current = start && start > 0 ? start : 0;
@@ -180,6 +200,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
         setError('unplayable');
         return;
       }
+      fromSystem.current = false;
       // The song asked for has no audio the player can read: say so rather than start another one silently.
       if (i > start) setSkipped(tracks[start].path);
       setVideo(null);
@@ -227,7 +248,10 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       const first = items[0];
       if (!first) return;
       if (first.kind === 'video') playVideo(first);
-      else playTracks(items.filter((i): i is Opened & { kind: 'audio' } => i.kind === 'audio'), 0);
+      else {
+        playTracks(items.filter((i): i is Opened & { kind: 'audio' } => i.kind === 'audio'), 0);
+        fromSystem.current = true;
+      }
     },
     [playVideo, playTracks],
   );
@@ -241,6 +265,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     setPictureFor(null);
     setQueue([]);
     setIndex(-1);
+    setGreetAt(null);
     window.clearTimeout(stopTimer.current);
     if (wasVideo) stopTimer.current = window.setTimeout(stopFile, 80);
     else stopFile();
@@ -317,9 +342,31 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('pagehide', leave);
   }, [save]);
 
+  // The song the player greets with: the pages see it paused where it was left, though the engine holds no file.
+  // Play loads it there; moving along its bar before that only moves where it will start.
+  const greeted = greetAt && !video && index >= 0 ? queue[index] : undefined;
+  const shownMedia = useMemo<MediaController>(() => {
+    if (!greeted || !greetAt) return media;
+    const start = () => load(greeted.path, greetAt.position);
+    const length = greetAt.duration || greeted.duration;
+    const moveTo = (time: number) => setGreetAt({ ...greetAt, position: Math.max(0, Math.min(time, length || time)) });
+    return {
+      ...media,
+      playing: false,
+      waiting: false,
+      ended: false,
+      currentTime: greetAt.position,
+      duration: length,
+      play: start,
+      toggle: start,
+      seek: moveTo,
+      skip: (delta) => moveTo(greetAt.position + delta),
+    };
+  }, [media, greeted, greetAt, load]);
+
   const value = useMemo<Playback>(
     () => ({
-      engine: media,
+      engine: shownMedia,
       queue,
       index,
       current: index >= 0 ? queue[index] ?? null : null,
@@ -339,7 +386,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       clearFailure: () => setFailure(null),
       setVideoBox,
     }),
-    [media, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop],
+    [shownMedia, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop],
   );
   const shown = !!video && !!box;
   return (

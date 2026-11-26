@@ -194,7 +194,7 @@ interface AppProps {
 /** The main window: the shared shell from the design system, around the player and the media pages. */
 export function App({ launchedWithFiles = false }: AppProps) {
   return (
-    <PlaybackProvider>
+    <PlaybackProvider greet={!launchedWithFiles}>
       <Main launchedWithFiles={launchedWithFiles} />
     </PlaybackProvider>
   );

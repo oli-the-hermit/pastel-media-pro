@@ -281,7 +281,11 @@ pub async fn engine_load(
     paused: Option<bool>,
 ) -> Result<(), String> {
     if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&app, &path) {
-        return Err("this file is outside the library".into());
+        // The library is only opened once a page shows it. The song the player greets with is asked for before
+        // that: open the library, then look again.
+        if crate::library::ensure_ready(&app).is_err() || !crate::library::allowed(&app, &path) {
+            return Err("this file is outside the library".into());
+        }
     }
     #[cfg(windows)]
     {

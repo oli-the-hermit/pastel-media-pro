@@ -573,3 +573,29 @@ body {
 .mp-queue {
   --ps-transfer-card-bottom: calc(var(--ps-space-16) * 5);
 }
+
+/* The player with its queue open: the song, and the queue beside it; under it in a narrow window. The queue is
+   as tall as the window leaves it and scrolls inside. */
+.mp-player.has-queue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ps-space-24);
+}
+.mp-player.has-queue > :first-child {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.mp-player-queue {
+  flex: none;
+  max-height: 72vh;
+}
+@media (max-width: 900px) {
+  .mp-player.has-queue {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mp-player-queue {
+    width: 100%;
+    max-height: 50vh;
+  }
+}
