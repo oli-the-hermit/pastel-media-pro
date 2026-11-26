@@ -3,6 +3,7 @@ import { Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Sele
 import { MediaGrid, MediaTile } from '@pastel-media/media-ui';
 import { strings } from '../strings';
 import { tier } from './import/filters';
+import { resumePoint, useHistory } from './history';
 import { usePoster, type LibSeries, type LibVideo, type Library } from './library';
 import { usePlayback } from './playback';
 import { useDrillIn } from './useDrillIn';
@@ -11,7 +12,7 @@ import { useDrillIn } from './useDrillIn';
  * A film's or a series' title page: the poster, the name and its facts, the synopsis, Play, then what it holds. An
  * early form of Phase 5's details page: the poster and synopsis come from the art and `.nfo` beside the files.
  */
-function TitlePage({ kind, title, facts, icon, poster, overview, play, onBack, backLabel, children }: {
+function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onBack, backLabel, children }: {
   kind: string;
   title: string;
   facts: string[];
@@ -20,6 +21,8 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, onBack, b
   poster?: string | null;
   overview?: string | null;
   play: { label: string; onClick: () => void } | null;
+  /** A second action beside Play ("Start over"). */
+  also?: { label: string; onClick: () => void } | null;
   onBack: () => void;
   backLabel: string;
   children?: ReactNode;
@@ -48,10 +51,11 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, onBack, b
           )}
           {overview ? <p className="mp-title-overview">{overview}</p> : undefined}
           {play && (
-            <div>
+            <div className="mp-title-actions">
               <Button variant="primary" icon={<IconPlay />} onClick={play.onClick}>
                 {play.label}
               </Button>
+              {also ? <Button onClick={also.onClick}>{also.label}</Button> : undefined}
             </div>
           )}
         </div>
@@ -112,9 +116,11 @@ function SeriesTile({ series, onOpen }: { series: LibSeries; onOpen: () => void 
 export function MoviesPage({ library }: { library: Library }) {
   const { openId, open: openMovie, close } = useDrillIn();
   const playback = usePlayback();
+  const history = useHistory();
   const open = library.movies.find((m) => m.id === openId);
   if (library.movies.length === 0) return <EmptyState>{strings.streaming.views.movies.empty}</EmptyState>;
   if (open) {
+    const left = resumePoint(history.get(open.path));
     return (
       <TitlePage
         kind={strings.videos.film}
@@ -123,7 +129,8 @@ export function MoviesPage({ library }: { library: Library }) {
         icon={<IconFileVideo size={48} />}
         poster={open.poster}
         overview={open.overview}
-        play={{ label: strings.videos.play, onClick: () => playback.playVideo(open) }}
+        play={{ label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(open) }}
+        also={left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(open, { fromStart: true }) } : null}
         onBack={close}
         backLabel={strings.videos.allMovies}
       />

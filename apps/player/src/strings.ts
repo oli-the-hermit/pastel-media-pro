@@ -194,6 +194,9 @@ export const strings = {
     series: 'Series',
     unknownSeries: 'Unknown series',
     play: 'Play',
+    /** A film left part-way: its Play button says where it picks up, and Start over sits beside it. */
+    resume: (time: string) => `Resume at ${time}`,
+    startOver: 'Start over',
     /** The series' Play button: the first episode of the season shown. */
     playFrom: (season: number | null, episode: number | null) =>
       `Play ${[season != null ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' ')}`.trim(),

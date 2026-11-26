@@ -157,6 +157,12 @@ body {
   overflow-wrap: anywhere;
 }
 
+.mp-title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-8);
+}
+
 .mp-title-facts {
   display: flex;
   flex-wrap: wrap;

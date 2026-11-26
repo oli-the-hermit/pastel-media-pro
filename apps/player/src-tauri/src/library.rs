@@ -43,6 +43,8 @@ pub struct LibTrack {
     pub path: String,
     /// Set when the file has tags but no audio the engine can read.
     pub unplayable: bool,
+    /// When it joined the library, in seconds since 1970; 0 for a file read without the database.
+    pub added_at: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -77,6 +79,8 @@ pub struct LibVideo {
     /// Images (`library_image`), from the art beside the file.
     pub poster: Option<String>,
     pub backdrop: Option<String>,
+    /// When it joined the library, in seconds since 1970; 0 for a file read without the database.
+    pub added_at: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -289,6 +293,7 @@ fn track_from_name(path: &Path) -> Option<(LibTrack, String)> {
         duration: mp3_seconds(path).unwrap_or(0.0),
         path: path.to_string_lossy().to_string(),
         unplayable: false,
+        added_at: 0,
     };
     Some((track, String::new()))
 }
@@ -320,6 +325,7 @@ pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
         duration: tf.properties().duration().as_secs_f64(),
         path: path.to_string_lossy().to_string(),
         unplayable,
+        added_at: 0,
     };
     Some((track, if album_artist.is_empty() { artist } else { album_artist }))
 }
@@ -569,7 +575,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
     let roots: Vec<String> = crate::import::places(conn).iter().map(|p| shown(&p.root)).collect();
     let audio = conn
         .prepare(
-            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem
+            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem, f.added_at
              FROM tracks t JOIN files f ON f.id = t.file_id WHERE f.missing = 0",
         )?
         .query_map([], |r| {
@@ -585,6 +591,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     year: r.get(8)?,
                     duration: r.get::<_, i64>(9)? as f64 / 1000.0,
                     unplayable: r.get::<_, Option<String>>(10)?.is_some(),
+                    added_at: r.get(11)?,
                 },
                 r.get::<_, String>(4)?,
             ))
@@ -594,7 +601,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .prepare(
             "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
                     o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
-                    o.title, m.title, m.year, m.overview, m.genres, p.path
+                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at
              FROM videos v JOIN files f ON f.id = v.file_id
              LEFT JOIN places p ON p.id = f.place_id
              LEFT JOIN overrides o ON o.file_id = f.id
@@ -639,6 +646,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     height: r.get(13)?,
                     overview: r.get(17)?,
                     genres: r.get::<_, Option<String>>(18)?.map(|g| g.split(", ").map(String::from).collect()).unwrap_or_default(),
+                    added_at: r.get(20)?,
                 },
                 kind,
                 show_folder: parse::show_folder_in(&rel, place_name.as_deref()),

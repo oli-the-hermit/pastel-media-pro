@@ -7,6 +7,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useMediaElement, type MediaController } from '@pastel-studio/react';
 import { isDesktop } from '@pastel-studio/desktop';
 import { engine, hasPicture, useEngine, type Engine } from './engine';
+import { playOf, recordPlay, resumePoint } from './history';
 import type { LibTrack, LibVideo } from './library';
 import type { Opened } from './opened';
 
@@ -37,7 +38,8 @@ export interface Playback {
   /** The file that could not be opened, when nothing else plays: the player shows it. */
   failure: PlayFailure | null;
   playTracks: (tracks: LibTrack[], index: number) => void;
-  playVideo: (video: LibVideo) => void;
+  /** Plays a video where it was left, when it was left part-way; `fromStart` plays it from its start. */
+  playVideo: (video: LibVideo, opts?: { fromStart?: boolean }) => void;
   /**
    * Files the system handed the app play at once (D16): a video when the first file is one, otherwise the songs
    * among them as the queue. (A queue of videos comes with the player's queue.)
@@ -54,18 +56,21 @@ export interface Playback {
   setVideoBox: (box: VideoBox) => void;
 }
 
-/** One way to play files: the media controller, the file that just ended, and how to load and stop. */
+/** One way to play files: the media controller, the file it is on, the file that just ended, and how to load and stop. */
 interface Backend {
   media: MediaController;
+  /** The file the controller's time and length belong to; empty with nothing loaded. */
+  path: string;
   endedPath: string;
-  load: (path: string) => Promise<void>;
+  load: (path: string, start?: number) => Promise<void>;
   stop: () => void;
 }
 
 function useMpvBackend(): Backend & { media: Engine } {
   const media = useEngine();
-  const endedPath = media.status.eof === 'yes' ? media.status.path ?? '' : '';
-  return useMemo(() => ({ media, endedPath, load: engine.load, stop: () => void engine.command('stop').catch(() => {}) }), [media, endedPath]);
+  const path = media.status.idle === 'yes' ? '' : (media.status.path ?? '');
+  const endedPath = media.status.eof === 'yes' ? path : '';
+  return useMemo(() => ({ media, path, endedPath, load: engine.load, stop: () => void engine.command('stop').catch(() => {}) }), [media, path, endedPath]);
 }
 
 function useWebBackend(el: React.RefObject<HTMLVideoElement>, onError: (e: string) => void): Backend {
@@ -82,11 +87,13 @@ function useWebBackend(el: React.RefObject<HTMLVideoElement>, onError: (e: strin
     return () => v.removeEventListener('error', fail);
   }, [el, onError]);
   const load = useCallback(
-    async (path: string) => {
+    async (path: string, start?: number) => {
       const v = el.current;
       if (!v) return;
       setSrc(path);
       v.src = path;
+      // From where it was left: the element takes a position once it knows the file.
+      if (start && start > 0) v.addEventListener('loadedmetadata', () => (v.currentTime = start), { once: true });
       await v.play().catch((e: Error) => {
         // A newer load interrupted this one, or the browser wants a click before sound: not a file the browser cannot play
         // (that one fires the element's error event). In the second case the player waits paused for Play.
@@ -104,7 +111,7 @@ function useWebBackend(el: React.RefObject<HTMLVideoElement>, onError: (e: strin
     setSrc('');
   }, [el]);
   const endedPath = media.ended ? src : '';
-  return useMemo(() => ({ media, endedPath, load, stop }), [media, endedPath, load, stop]);
+  return useMemo(() => ({ media, path: src, endedPath, load, stop }), [media, src, endedPath, load, stop]);
 }
 
 const Ctx = createContext<Playback | null>(null);
@@ -134,11 +141,34 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   const backend = native ? mpv : web;
   const { load: loadFile, stop: stopFile, media, endedPath } = backend;
 
+  // ── History: where each file is, written down as it plays (history.ts) ──
+  // What plays now, and the engine's time and length for it. While the engine is still on the file before, these
+  // stay that file's: what is saved always belongs to the path it is saved under.
+  const nowPath = video?.path ?? (index >= 0 ? queue[index]?.path : undefined) ?? '';
+  const at = useRef({ path: '', position: 0, duration: 0 });
+  // Where the file was asked to start, until the engine gets there: leaving before it does must not write a
+  // position of zero over the place the film was left.
+  const startAt = useRef(0);
+  if (nowPath && backend.path === nowPath) {
+    at.current = { path: nowPath, position: media.currentTime, duration: media.duration };
+    if (startAt.current > 0 && media.currentTime >= startAt.current - 5) startAt.current = 0;
+  }
+  const counted = useRef('');
+  const save = useCallback((ended = false) => {
+    const a = at.current;
+    if (!a.path || (!ended && startAt.current > 0)) return;
+    recordPlay(a.path, a.position, a.duration, ended, counted.current !== a.path);
+    counted.current = a.path;
+  }, []);
+
   const load = useCallback(
-    (path: string) => {
+    (path: string, start?: number) => {
       window.clearTimeout(stopTimer.current);
       setFailure(null);
-      void loadFile(path).catch((e) => setError(String(e)));
+      // Playing the same file again is one more play.
+      if (counted.current === path) counted.current = '';
+      startAt.current = start && start > 0 ? start : 0;
+      void loadFile(path, start).catch((e) => setError(String(e)));
     },
     [loadFile],
   );
@@ -170,14 +200,24 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     [queue, index, load],
   );
 
+  // A video left part-way picks up there by itself; its page offers "Start over".
+  const asked = useRef(0);
   const playVideo = useCallback(
-    (v: LibVideo) => {
+    (v: LibVideo, opts?: { fromStart?: boolean }) => {
       setQueue([]);
       setIndex(-1);
       setVideo(v);
       setPictureFor(null);
       askedAt.current = Date.now();
-      load(v.path);
+      const mine = ++asked.current;
+      if (opts?.fromStart) {
+        load(v.path);
+        return;
+      }
+      void playOf(v.path).then(
+        (play) => mine === asked.current && load(v.path, resumePoint(play)),
+        () => mine === asked.current && load(v.path),
+      );
     },
     [load],
   );
@@ -196,6 +236,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   // so nothing behind the window shows in between.
   const stop = useCallback(() => {
     const wasVideo = video != null;
+    asked.current += 1;
     setVideo(null);
     setPictureFor(null);
     setQueue([]);
@@ -249,6 +290,32 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     advancedFor.current = endedPath;
     step(1);
   }, [endedPath, video, step]);
+
+  // Saved: when a file ends, when it is paused, every ten seconds while it plays, when another file takes its
+  // place (or nothing does), and when the window closes.
+  useEffect(() => {
+    if (endedPath && endedPath === at.current.path) save(true);
+  }, [endedPath, save]);
+  const playing = media.playing;
+  useEffect(() => {
+    if (!nowPath) return;
+    if (!playing) {
+      // Paused part-way (not: still loading)
+      if (at.current.path === nowPath && at.current.position > 0) save();
+      return;
+    }
+    const id = window.setInterval(save, 10_000);
+    return () => window.clearInterval(id);
+  }, [nowPath, playing, save]);
+  useEffect(() => {
+    if (!nowPath) return;
+    return () => save();
+  }, [nowPath, save]);
+  useEffect(() => {
+    const leave = () => save();
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, [save]);
 
   const value = useMemo<Playback>(
     () => ({

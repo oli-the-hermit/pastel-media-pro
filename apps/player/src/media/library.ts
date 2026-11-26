@@ -23,6 +23,8 @@ export interface LibTrack {
   path: string;
   /** The file has tags but no audio the engine can read. */
   unplayable: boolean;
+  /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
+  addedAt?: number;
 }
 
 export interface LibAlbum {
@@ -55,6 +57,8 @@ export interface LibVideo {
   /** Images in the library's cache (`usePoster`), from the art beside the file. */
   poster?: string | null;
   backdrop?: string | null;
+  /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
+  addedAt?: number;
 }
 
 export interface LibSeries {

@@ -115,6 +115,16 @@ fn dispatch(app: &AppHandle, queue: &Arc<Queue>, cmd: &str, args: &Value) -> Res
         "library_get" => to_value(block(library::library_get(app.clone()))?),
         "library_cover" => to_value(block(library::library_cover(app.state(), arg(args, "albumId")?))?),
         "library_image" => to_value(block(library::library_image(app.clone(), arg(args, "hash")?))?),
+        "history_record" => to_value(block(crate::history::history_record(
+            app.clone(),
+            arg(args, "path")?,
+            arg(args, "position")?,
+            arg(args, "duration")?,
+            arg(args, "ended")?,
+            arg(args, "started")?,
+        ))?),
+        "history_list" => to_value(block(crate::history::history_list(app.clone()))?),
+        "history_get" => to_value(block(crate::history::history_get(app.clone(), arg(args, "path")?))?),
         "import_pick_folder" => to_value(block(import::import_pick_folder(app.clone(), arg(args, "title")?))),
         "import_pick_files" => to_value(block(import::import_pick_files(app.clone(), arg(args, "title")?, arg(args, "audio")?, arg(args, "video")?))),
         "import_discover" => {
