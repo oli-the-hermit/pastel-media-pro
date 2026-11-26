@@ -182,8 +182,24 @@ export const strings = {
   music: {
     albums: 'Albums',
     allAlbums: 'All albums',
+    allArtists: 'All artists',
     unknownArtist: 'Unknown artist',
+    variousArtists: 'Various artists',
     noAlbum: 'Songs without an album',
+    viewsLabel: 'Music views',
+    views: { songs: 'Songs', albums: 'Albums', artists: 'Artists' },
+    search: 'Search songs, albums, artists',
+    /** The headings in the search's suggestions. */
+    kinds: { song: 'Songs', album: 'Albums', artist: 'Artists' },
+    sortLabel: 'Sort by',
+    /** The sort menu's name, with the order in use. */
+    sortedBy: (order: string) => `Sort by: ${order}`,
+    sorts: { played: 'Recently played', added: 'Recently added', az: 'A–Z', za: 'Z–A' },
+    nothingFound: (query: string) => (query ? `Nothing found for “${query}”.` : 'Nothing here yet.'),
+    artist: 'Artist',
+    artistFacts: (albums: number, songs: number) =>
+      [albums > 0 ? (albums === 1 ? '1 album' : `${albums} albums`) : '', songs === 1 ? '1 song' : `${songs.toLocaleString()} songs`].filter(Boolean).join(' · '),
+    shuffle: 'Shuffle',
     unplayableMark: '(no audio)',
     albumSubtitle: (artist: string, songs: number) => `${artist} · ${songs === 1 ? '1 song' : `${songs} songs`}`,
   },

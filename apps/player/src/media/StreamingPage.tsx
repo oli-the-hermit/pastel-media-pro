@@ -24,7 +24,7 @@ export function StreamingPage({ library }: { library: Library | null }) {
     <div className="mp-streaming">
       <div className="mp-page-head">
         <SegmentedControl options={VIEWS} value={view} onChange={setView} ariaLabel={strings.streaming.viewsLabel} />
-        <AddButtons preset="movies" />
+        <AddButtons preset="movies" icons />
       </div>
       {content}
     </div>

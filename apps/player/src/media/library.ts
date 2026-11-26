@@ -158,6 +158,11 @@ export function useCover(albumId: string): string | undefined {
       setCover(webCovers.get(albumId));
       return;
     }
+    // Nothing to show a cover of (the songs without an album)
+    if (!albumId) {
+      setCover(undefined);
+      return;
+    }
     let alive = true;
     if (!covers.has(albumId)) covers.set(albumId, invoke<string | null>('library_cover', { albumId }).then((c) => c ?? undefined, () => undefined));
     void covers.get(albumId)!.then((c) => alive && setCover(c));

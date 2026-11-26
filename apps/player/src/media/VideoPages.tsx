@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, formatDuration, formatTime } from '@pastel-studio/react';
-import { MediaGrid, MediaTile } from '@pastel-media/media-ui';
+import {
+  Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, TitleGrid, TitleTile, formatDuration, formatTime,
+} from '@pastel-studio/react';
 import { strings } from '../strings';
 import { tier } from './import/filters';
 import { resumePoint, useHistory } from './history';
@@ -80,35 +81,31 @@ function movieFacts(v: LibVideo): string[] {
 function MovieTile({ video, current, onOpen }: { video: LibVideo; current: boolean; onOpen: () => void }) {
   const poster = usePoster(video.poster);
   return (
-    <div role="listitem">
-      <MediaTile
-        shape="poster"
-        title={video.title || video.fileName}
-        subtitle={video.year ? String(video.year) : undefined}
-        cover={poster}
-        icon={<IconFileVideo size={32} />}
-        current={current}
-        data-tile-id={video.id}
-        onClick={onOpen}
-      />
-    </div>
+    <TitleTile
+      shape="poster"
+      title={video.title || video.fileName}
+      subtitle={video.year ? String(video.year) : undefined}
+      image={poster}
+      icon={<IconFileVideo size={32} />}
+      current={current}
+      data-tile-id={video.id}
+      onClick={onOpen}
+    />
   );
 }
 
 function SeriesTile({ series, onOpen }: { series: LibSeries; onOpen: () => void }) {
   const poster = usePoster(series.poster);
   return (
-    <div role="listitem">
-      <MediaTile
-        shape="poster"
-        title={series.title || strings.videos.unknownSeries}
-        subtitle={strings.videos.episodes(series.episodes.length)}
-        cover={poster}
-        icon={<IconMonitor size={32} />}
-        data-tile-id={series.id}
-        onClick={onOpen}
-      />
-    </div>
+    <TitleTile
+      shape="poster"
+      title={series.title || strings.videos.unknownSeries}
+      subtitle={strings.videos.episodes(series.episodes.length)}
+      image={poster}
+      icon={<IconMonitor size={32} />}
+      data-tile-id={series.id}
+      onClick={onOpen}
+    />
   );
 }
 
@@ -138,11 +135,11 @@ export function MoviesPage({ library }: { library: Library }) {
   }
   return (
     <div className="mp-page">
-      <MediaGrid aria-label={strings.streaming.views.movies.label}>
+      <TitleGrid shape="poster" aria-label={strings.streaming.views.movies.label}>
         {library.movies.map((v) => (
           <MovieTile key={v.id} video={v} current={playback.video?.id === v.id} onOpen={() => openMovie(v.id)} />
         ))}
-      </MediaGrid>
+      </TitleGrid>
     </div>
   );
 }
@@ -215,11 +212,11 @@ export function SeriesPage({ library }: { library: Library }) {
   if (open) return <SeriesTitle key={open.id} series={open} onBack={close} />;
   return (
     <div className="mp-page">
-      <MediaGrid aria-label={strings.streaming.views.series.label}>
+      <TitleGrid shape="poster" aria-label={strings.streaming.views.series.label}>
         {library.series.map((s) => (
           <SeriesTile key={s.id} series={s} onOpen={() => openSeries(s.id)} />
         ))}
-      </MediaGrid>
+      </TitleGrid>
     </div>
   );
 }
