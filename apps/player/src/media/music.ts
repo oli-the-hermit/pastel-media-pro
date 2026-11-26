@@ -5,6 +5,9 @@
  */
 import type { Play } from './history';
 import type { LibAlbum, LibTrack, Library } from './library';
+import { byName, fold, matcher } from './listing';
+
+export { fold };
 
 export type MusicView = 'songs' | 'albums' | 'artists';
 export type MusicSort = 'played' | 'added' | 'az' | 'za';
@@ -47,16 +50,6 @@ export interface MusicIndex {
   artists: ArtistEntry[];
   /** The album a song is in (the no-album entry for a song without one). */
   albumOf: Map<string, AlbumEntry>;
-}
-
-/** Lower case, without accents or punctuation: "Pokémon" is found by "pokemon", "AC/DC" by "acdc" or "ac dc". */
-export function fold(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
 }
 
 const newest = (tracks: LibTrack[]) => tracks.reduce((m, t) => Math.max(m, t.addedAt ?? 0), 0);
@@ -115,17 +108,6 @@ export function buildMusic(library: Pick<Library, 'tracks' | 'albums'>): MusicIn
   return { songs: library.tracks, albums, artists: [...artists.values()], albumOf };
 }
 
-const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
-/** A–Z as people file names: "The Quiet Hours" under Q; nameless ones last. */
-const filed = (s: string) => fold(s).replace(/^(?:the|a|an|el|la|los|las|le|les) (?=\S)/, '');
-function byName<T>(name: (x: T) => string): (a: T, b: T) => number {
-  return (a, b) => {
-    const [x, y] = [filed(name(a)), filed(name(b))];
-    if (!x || !y) return x ? -1 : y ? 1 : 0;
-    return collator.compare(x, y);
-  };
-}
-
 type History = ReadonlyMap<string, Play>;
 const lastPlayed = (tracks: LibTrack[], history: History) => tracks.reduce((m, t) => Math.max(m, history.get(t.path)?.lastPlayedAt ?? 0), 0);
 
@@ -149,16 +131,6 @@ export function sortAlbums(albums: AlbumEntry[], sort: MusicSort, history: Histo
 export function sortArtists(artists: ArtistEntry[], sort: MusicSort, history: History): ArtistEntry[] {
   const tracks = (a: ArtistEntry) => [...a.albums.flatMap((al) => al.tracks), ...a.loose];
   return sorted(artists, sort, (a) => a.name, (a) => lastPlayed(tracks(a), history), (a) => a.addedAt);
-}
-
-/** Every word typed is in the text, each at the start of a word: "pol ni" finds "Polar Nights". */
-function matcher(query: string): ((text: string) => boolean) | null {
-  const words = fold(query).split(' ').filter(Boolean);
-  if (words.length === 0) return null;
-  return (text) => {
-    const t = ` ${fold(text)}`;
-    return words.every((w) => t.includes(` ${w}`));
-  };
 }
 
 export interface MusicResults {

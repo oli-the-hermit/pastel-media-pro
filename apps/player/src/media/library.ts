@@ -175,6 +175,12 @@ export function useCover(albumId: string): string | undefined {
 
 const images = new Map<string, Promise<string | undefined>>();
 
+/** An image of the library's cache, asked for once. */
+function loadImage(hash: string): Promise<string | undefined> {
+  if (!images.has(hash)) images.set(hash, invoke<string | null>('library_image', { hash }).then((c) => c ?? undefined, () => undefined));
+  return images.get(hash)!;
+}
+
 /** A poster or backdrop from the library's image cache (made once by the import), or nothing. */
 export function usePoster(hash: string | null | undefined): string | undefined {
   const [url, setUrl] = useState<string | undefined>();
@@ -182,13 +188,29 @@ export function usePoster(hash: string | null | undefined): string | undefined {
     setUrl(undefined);
     if (!hash || !isDesktop()) return;
     let alive = true;
-    if (!images.has(hash)) images.set(hash, invoke<string | null>('library_image', { hash }).then((c) => c ?? undefined, () => undefined));
-    void images.get(hash)!.then((u) => alive && setUrl(u));
+    void loadImage(hash).then((u) => alive && setUrl(u));
     return () => {
       alive = false;
     };
   }, [hash]);
   return url;
+}
+
+/** Several images of the cache at once (Home's banner), in the order asked; nothing where there is none. */
+export function usePosters(hashes: readonly (string | null | undefined)[]): (string | undefined)[] {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const wanted = hashes.map((h) => h ?? '').join('|');
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let alive = true;
+    for (const hash of wanted.split('|')) {
+      if (hash) void loadImage(hash).then((u) => alive && u && setUrls((known) => (known[hash] === u ? known : { ...known, [hash]: u })));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [wanted]);
+  return hashes.map((h) => (h ? urls[h] : undefined));
 }
 
 const openedCovers = new Map<string, Promise<string | undefined>>();

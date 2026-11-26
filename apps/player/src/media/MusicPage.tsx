@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlbumPage, Button, Combobox, EmptyState, FilterChips, IconChevronDown, IconMusic, IconPlay, IconShuffle, IconUser, Menu, TextButton, TitleGrid,
-  TitleTile, TrackList,
+  AlbumPage, Button, Combobox, EmptyState, FilterChips, IconMusic, IconPlay, IconShuffle, IconUser, TextButton, TitleGrid, TitleTile, TrackList,
   type ComboboxOption,
 } from '@pastel-studio/react';
 import { strings } from '../strings';
@@ -14,6 +13,7 @@ import {
 } from './music';
 import { usePlayback } from './playback';
 import { useRemembered } from './remember';
+import { SortMenu } from './SortMenu';
 
 const VIEW_OPTIONS = MUSIC_VIEWS.map((value) => ({ value, label: strings.music.views[value] }));
 const DEFAULT_SORTS: Record<MusicView, MusicSort> = { songs: 'az', albums: 'az', artists: 'az' };
@@ -285,18 +285,7 @@ export function MusicPage({ library }: { library: Library }) {
         </div>
         <div className="mp-page-head">
           <FilterChips options={VIEW_OPTIONS} value={view} onChange={setView} ariaLabel={strings.music.viewsLabel} />
-          <Menu
-            align="end"
-            ariaLabel={strings.music.sortedBy(strings.music.sorts[sort])}
-            triggerClassName="mp-sort"
-            trigger={
-              <>
-                {strings.music.sorts[sort]}
-                <IconChevronDown size={16} />
-              </>
-            }
-            items={MUSIC_SORTS.map((value) => ({ key: value, label: strings.music.sorts[value], checked: value === sort, onSelect: () => setSorts({ ...sorts, [view]: value }) }))}
-          />
+          <SortMenu orders={MUSIC_SORTS} labels={strings.music.sorts} value={sort} onChange={(value) => setSorts({ ...sorts, [view]: value })} />
         </div>
       </div>
       {count === 0 ? (

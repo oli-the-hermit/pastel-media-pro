@@ -383,6 +383,14 @@ body {
   height: var(--ps-space-24);
 }
 
+/* Streaming's Home: the banner, then its rows. */
+.mp-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-32);
+  min-width: 0;
+}
+
 /* A part of a page under its own small heading (an artist's albums, their loose songs). */
 .mp-section {
   display: flex;

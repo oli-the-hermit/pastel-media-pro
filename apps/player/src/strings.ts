@@ -30,6 +30,26 @@ export const strings = {
       series: { label: 'Series', empty: 'Your series will live here, season by season.' },
       clips: { label: 'Clips', empty: 'Music videos, recordings and other short videos will live here.' },
     },
+    search: 'Search films, series, clips',
+    /** The headings in the search's suggestions, and over what a search finds on Home. */
+    kinds: { film: 'Films', series: 'Series', clip: 'Clips' },
+    watchLabel: 'Show',
+    watch: { all: 'All', unwatched: 'Not watched', progress: 'In progress', watched: 'Watched' },
+    sorts: { added: 'Recently added', watched: 'Recently watched', az: 'A–Z', za: 'Z–A', year: 'Year' },
+    nothingFound: (query: string) => (query ? `Nothing found for “${query}”.` : 'Nothing here matches this filter.'),
+    home: {
+      banner: 'Suggested for you',
+      reasons: { continue: 'Continue watching', new: 'New in your library', unwatched: 'Not watched yet' },
+      continuing: 'Continue watching',
+      newFilms: 'Recently added films',
+      newSeries: 'Recently added series',
+      unwatched: 'Not watched yet',
+      details: 'Details',
+    },
+  },
+  /** Every list's sort menu: its name, with the order in use. */
+  lists: {
+    sortedBy: (order: string) => `Sort by: ${order}`,
   },
   topBar: {
     openMini: 'Open mini player',
@@ -191,9 +211,6 @@ export const strings = {
     search: 'Search songs, albums, artists',
     /** The headings in the search's suggestions. */
     kinds: { song: 'Songs', album: 'Albums', artist: 'Artists' },
-    sortLabel: 'Sort by',
-    /** The sort menu's name, with the order in use. */
-    sortedBy: (order: string) => `Sort by: ${order}`,
     sorts: { played: 'Recently played', added: 'Recently added', az: 'A–Z', za: 'Z–A' },
     nothingFound: (query: string) => (query ? `Nothing found for “${query}”.` : 'Nothing here yet.'),
     artist: 'Artist',
@@ -206,16 +223,31 @@ export const strings = {
   videos: {
     allSeries: 'All series',
     allMovies: 'All films',
+    allClips: 'All clips',
+    /** Back, from a title opened on Home or from a search there. */
+    backHome: 'Home',
     film: 'Film',
+    clip: 'Clip',
     series: 'Series',
     unknownSeries: 'Unknown series',
     play: 'Play',
     /** A film left part-way: its Play button says where it picks up, and Start over sits beside it. */
     resume: (time: string) => `Resume at ${time}`,
     startOver: 'Start over',
-    /** The series' Play button: the first episode of the season shown. */
+    /** On Home, where the time it picks up at is beside it. */
+    resumeShort: 'Resume',
+    /** An episode as a tile's second line says it: "S1 E3". */
+    episodeShort: (season: number | null, episode: number | null) =>
+      [season != null && season > 0 ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' '),
+    /** The series' Play button: the episode it goes on with, or the first one of the season shown. */
     playFrom: (season: number | null, episode: number | null) =>
       `Play ${[season != null ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' ')}`.trim(),
+    /** The same button for an episode left part-way. */
+    resumeFrom: (season: number | null, episode: number | null) =>
+      `Resume ${[season != null ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' ')}`.trim(),
+    /** How much of a video is left, on its tile or row: "12 min left". */
+    left: (time: string) => `${time} left`,
+    watched: 'Watched',
     season: (n: number | null) => (n == null ? 'Episodes' : n === 0 ? 'Specials' : `Season ${n}`),
     seasons: (n: number) => (n === 1 ? '1 season' : `${n} seasons`),
     seasonLabel: 'Season',

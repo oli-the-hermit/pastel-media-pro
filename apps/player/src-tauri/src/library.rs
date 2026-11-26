@@ -79,7 +79,8 @@ pub struct LibVideo {
     /// Images (`library_image`), from the art beside the file.
     pub poster: Option<String>,
     pub backdrop: Option<String>,
-    /// When it joined the library, in seconds since 1970; 0 for a file read without the database.
+    /// When it joined the library, in seconds since 1970. For a file read without the database (the web version's
+    /// test library): when it was last changed, which stands in for it.
     pub added_at: i64,
 }
 
@@ -441,13 +442,28 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
             }
         }
     }
-    let tracks = audio.iter().filter_map(|p| read_track(p)).collect();
+    // No database, so no day a file was added: when it was last changed stands in, and the pages that list
+    // "recently added" have something to order by. Lengths come from the quick probe, as in an import.
+    let changed = |p: &Path| {
+        let at = std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+        at.map_or(0, |d| d.as_secs() as i64)
+    };
+    let tracks = audio
+        .iter()
+        .filter_map(|p| {
+            read_track(p).map(|(mut t, artist)| {
+                t.added_at = changed(p);
+                (t, artist)
+            })
+        })
+        .collect();
     let videos = video
         .iter()
         .map(|(root, p)| {
             let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
             let parsed = parse::parse(&rel);
             let root_name = root.file_name().map(|n| n.to_string_lossy().into_owned());
+            let probed = crate::probe::probe(p).unwrap_or_default();
             VideoEntry {
                 video: LibVideo {
                     title: parsed.title.clone(),
@@ -457,6 +473,10 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
                     episode_title: parsed.episode_title.clone(),
                     file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
                     path: p.to_string_lossy().to_string(),
+                    duration: probed.duration,
+                    width: probed.width,
+                    height: probed.height,
+                    added_at: changed(p),
                     ..Default::default()
                 },
                 kind: parsed.kind,

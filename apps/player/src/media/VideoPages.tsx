@@ -1,13 +1,18 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import {
-  Button, EmptyState, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, TitleGrid, TitleTile, formatDuration, formatTime,
+  Button, IconCheck, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, TitleGrid, TitleTile, formatDuration, formatTime,
+  formatTimeLeft, type TitleTileShape,
 } from '@pastel-studio/react';
 import { strings } from '../strings';
 import { tier } from './import/filters';
-import { resumePoint, useHistory } from './history';
-import { usePoster, type LibSeries, type LibVideo, type Library } from './library';
+import { progressOf, resumePoint, useHistory, type Play } from './history';
+import { usePoster, type LibSeries, type LibVideo } from './library';
 import { usePlayback } from './playback';
-import { useDrillIn } from './useDrillIn';
+import { isClip, leftOf, nextEpisode, seriesProgress, seriesState, videoName, videoState } from './streaming';
+
+type History = ReadonlyMap<string, Play>;
+/** What a tile passes on to its button: a row of Home gives it the tab stop. */
+type TileRest = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title'>;
 
 /**
  * A film's or a series' title page: the poster, the name and its facts, the synopsis, Play, then what it holds. An
@@ -66,36 +71,57 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onB
   );
 }
 
+/** A video's length as its facts say it: seconds under a minute, otherwise hours and minutes. */
+export const lengthOf = (v: LibVideo) => (v.duration ? (v.duration < 60 ? formatTime(v.duration) : formatDuration(v.duration)) : '');
+
 /** A film's facts: year, length, genres, picture, file. */
 function movieFacts(v: LibVideo): string[] {
   const lines = tier(v);
-  return [
-    v.year ? String(v.year) : '',
-    v.duration ? (v.duration < 60 ? formatTime(v.duration) : formatDuration(v.duration)) : '',
-    (v.genres ?? []).join(', '),
-    lines ? strings.review.lines(lines) : '',
-    v.fileName,
-  ].filter(Boolean);
+  return [v.year ? String(v.year) : '', lengthOf(v), (v.genres ?? []).join(', '), lines ? strings.review.lines(lines) : '', v.fileName].filter(Boolean);
 }
 
-function MovieTile({ video, current, onOpen }: { video: LibVideo; current: boolean; onOpen: () => void }) {
-  const poster = usePoster(video.poster);
+/** What is left of a video that was started, as a tile or a row says it; empty when it was not. */
+export function leftLabel(v: LibVideo, history: History): string {
+  if (videoState(v, history) !== 'progress') return '';
+  const left = leftOf(v, history);
+  return left > 0 ? strings.videos.left(formatTimeLeft(left)) : '';
+}
+
+/**
+ * A film, a clip or an episode as a tile: its poster (a frame for the `wide` shape), how far it was watched and the
+ * mark of one watched to its end. `id` is the tile's own, which the focus returns to after its page closes.
+ */
+export function VideoTile({ video, history, id, shape = 'poster', title, subtitle, current = false, ...rest }: TileRest & {
+  video: LibVideo;
+  history: History;
+  id?: string;
+  shape?: TitleTileShape;
+  title?: string;
+  subtitle?: string;
+  current?: boolean;
+}) {
+  const image = usePoster(shape === 'wide' ? (video.backdrop ?? video.poster) : video.poster);
+  const play = history.get(video.path);
   return (
     <TitleTile
-      shape="poster"
-      title={video.title || video.fileName}
-      subtitle={video.year ? String(video.year) : undefined}
-      image={poster}
+      shape={shape}
+      title={title ?? videoName(video)}
+      subtitle={subtitle ?? (video.year ? String(video.year) : undefined)}
+      image={image}
       icon={<IconFileVideo size={32} />}
+      progress={videoState(video, history) === 'progress' ? progressOf(play) : undefined}
+      watched={play?.finished ?? false}
       current={current}
-      data-tile-id={video.id}
-      onClick={onOpen}
+      data-tile-id={id ?? video.id}
+      {...rest}
     />
   );
 }
 
-function SeriesTile({ series, onOpen }: { series: LibSeries; onOpen: () => void }) {
+/** A series as a tile: its poster, how much of it was watched, and the mark once every episode was. */
+export function SeriesTile({ series, history, id, ...rest }: TileRest & { series: LibSeries; history: History; id?: string }) {
   const poster = usePoster(series.poster);
+  const state = seriesState(series, history);
   return (
     <TitleTile
       shape="poster"
@@ -103,44 +129,55 @@ function SeriesTile({ series, onOpen }: { series: LibSeries; onOpen: () => void 
       subtitle={strings.videos.episodes(series.episodes.length)}
       image={poster}
       icon={<IconMonitor size={32} />}
-      data-tile-id={series.id}
-      onClick={onOpen}
+      progress={state === 'progress' ? seriesProgress(series, history) : undefined}
+      watched={state === 'watched'}
+      data-tile-id={id ?? series.id}
+      {...rest}
     />
   );
 }
 
-/** Movies: every video the parser read as a film; a film opens on its title page. */
-export function MoviesPage({ library }: { library: Library }) {
-  const { openId, open: openMovie, close } = useDrillIn();
+/** Films or clips as a grid of posters; one opens on its title page. */
+export function VideoGrid({ videos, history, label, onOpen }: { videos: LibVideo[]; history: History; label: string; onOpen: (video: LibVideo) => void }) {
+  const playing = usePlayback().video?.id;
+  return (
+    <TitleGrid shape="poster" aria-label={label}>
+      {videos.map((v) => (
+        <VideoTile key={v.id} video={v} history={history} current={playing === v.id} onClick={() => onOpen(v)} />
+      ))}
+    </TitleGrid>
+  );
+}
+
+/** Series as a grid of posters; one opens on its title page. */
+export function SeriesGrid({ series, history, label, onOpen }: { series: LibSeries[]; history: History; label: string; onOpen: (series: LibSeries) => void }) {
+  return (
+    <TitleGrid shape="poster" aria-label={label}>
+      {series.map((s) => (
+        <SeriesTile key={s.id} series={s} history={history} onClick={() => onOpen(s)} />
+      ))}
+    </TitleGrid>
+  );
+}
+
+/** A film's or a clip's title page. Left part-way, its Play picks up there, with Start over beside it. */
+export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; backLabel: string; onBack: () => void }) {
   const playback = usePlayback();
   const history = useHistory();
-  const open = library.movies.find((m) => m.id === openId);
-  if (library.movies.length === 0) return <EmptyState>{strings.streaming.views.movies.empty}</EmptyState>;
-  if (open) {
-    const left = resumePoint(history.get(open.path));
-    return (
-      <TitlePage
-        kind={strings.videos.film}
-        title={open.title || open.fileName}
-        facts={movieFacts(open)}
-        icon={<IconFileVideo size={48} />}
-        poster={open.poster}
-        overview={open.overview}
-        play={{ label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(open) }}
-        also={left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(open, { fromStart: true }) } : null}
-        onBack={close}
-        backLabel={strings.videos.allMovies}
-      />
-    );
-  }
+  const left = resumePoint(history.get(video.path));
   return (
-    <div className="mp-page">
-      <TitleGrid shape="poster" aria-label={strings.streaming.views.movies.label}>
-        {library.movies.map((v) => (
-          <MovieTile key={v.id} video={v} current={playback.video?.id === v.id} onOpen={() => openMovie(v.id)} />
-        ))}
-      </TitleGrid>
-    </div>
+    <TitlePage
+      kind={isClip(video) ? strings.videos.clip : strings.videos.film}
+      title={videoName(video)}
+      facts={movieFacts(video)}
+      icon={<IconFileVideo size={48} />}
+      poster={video.poster}
+      overview={video.overview}
+      play={{ label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(video) }}
+      also={left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(video, { fromStart: true }) } : null}
+      onBack={onBack}
+      backLabel={backLabel}
+    />
   );
 }
 
@@ -154,13 +191,21 @@ function seasonsOf(series: LibSeries): number[] {
   return [...new Set(series.episodes.map(seasonOf))].sort((a, b) => a - b);
 }
 
-function SeriesTitle({ series, onBack }: { series: LibSeries; onBack: () => void }) {
+/**
+ * A series' title page: its seasons and episodes, each with what was watched of it. Once the series was started,
+ * Play goes on with it (the episode left part-way, or the next one) and the page opens on that episode's season.
+ */
+export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; backLabel: string; onBack: () => void }) {
   const playback = usePlayback();
+  const history = useHistory();
   const seasons = useMemo(() => seasonsOf(series), [series]);
-  // Specials (season 0) are listed but a series opens on its first real season.
-  const [season, setSeason] = useState(() => seasons.find((s) => s > 0) ?? seasons[0] ?? NO_SEASON);
+  const started = seriesState(series, history) !== 'unwatched';
+  const next = started ? nextEpisode(series, history) : null;
+  // Specials (season 0) are listed but a series opens on its first real season, or on the one it goes on with.
+  const [season, setSeason] = useState(() => (next ? seasonOf(next) : (seasons.find((s) => s > 0) ?? seasons[0] ?? NO_SEASON)));
   const episodes = series.episodes.filter((e) => seasonOf(e) === season);
-  const first: LibVideo | undefined = episodes[0];
+  const first: LibVideo | undefined = next ?? episodes[0];
+  const resumes = !!first && resumePoint(history.get(first.path)) > 0;
   const realSeasons = seasons.filter((s) => s > 0).length;
   return (
     <TitlePage
@@ -169,9 +214,13 @@ function SeriesTitle({ series, onBack }: { series: LibSeries; onBack: () => void
       facts={[realSeasons > 1 ? strings.videos.seasons(realSeasons) : '', strings.videos.episodes(series.episodes.length)].filter(Boolean)}
       icon={<IconMonitor size={48} />}
       poster={series.poster}
-      play={first ? { label: strings.videos.playFrom(first.season, first.episode), onClick: () => playback.playVideo(first) } : null}
+      play={
+        first
+          ? { label: (resumes ? strings.videos.resumeFrom : strings.videos.playFrom)(first.season, first.episode), onClick: () => playback.playVideo(first) }
+          : null
+      }
       onBack={onBack}
-      backLabel={strings.videos.allSeries}
+      backLabel={backLabel}
     >
       <section className="mp-episodes-section" aria-label={seasonName(season)}>
         {seasons.length > 1 ? (
@@ -187,36 +236,22 @@ function SeriesTitle({ series, onBack }: { series: LibSeries; onBack: () => void
           <h3 className="mp-heading-sm">{seasonName(season)}</h3>
         )}
         <div role="list" className="mp-episodes">
-          {episodes.map((e) => (
-            <div role="listitem" key={e.id}>
-              <ListRow
-                icon={<IconPlay size={18} />}
-                title={strings.videos.episodeRow(e.episode, e.episodeTitle)}
-                description={e.fileName}
-                aria-current={playback.video?.id === e.id ? 'true' : undefined}
-                onClick={() => playback.playVideo(e)}
-              />
-            </div>
-          ))}
+          {episodes.map((e) => {
+            const watched = videoState(e, history) === 'watched';
+            return (
+              <div role="listitem" key={e.id}>
+                <ListRow
+                  icon={watched ? <IconCheck size={18} /> : <IconPlay size={18} />}
+                  title={strings.videos.episodeRow(e.episode, e.episodeTitle)}
+                  description={[watched ? strings.videos.watched : leftLabel(e, history), e.fileName].filter(Boolean).join(' · ')}
+                  aria-current={playback.video?.id === e.id ? 'true' : undefined}
+                  onClick={() => playback.playVideo(e)}
+                />
+              </div>
+            );
+          })}
         </div>
       </section>
     </TitlePage>
-  );
-}
-
-/** Series: the shows; a show opens on its title page, with its seasons and episodes. */
-export function SeriesPage({ library }: { library: Library }) {
-  const { openId, open: openSeries, close } = useDrillIn();
-  const open = library.series.find((s) => s.id === openId);
-  if (library.series.length === 0) return <EmptyState>{strings.streaming.views.series.empty}</EmptyState>;
-  if (open) return <SeriesTitle key={open.id} series={open} onBack={close} />;
-  return (
-    <div className="mp-page">
-      <TitleGrid shape="poster" aria-label={strings.streaming.views.series.label}>
-        {library.series.map((s) => (
-          <SeriesTile key={s.id} series={s} onOpen={() => openSeries(s.id)} />
-        ))}
-      </TitleGrid>
-    </div>
   );
 }
