@@ -45,11 +45,14 @@ re!(SPECIALS_FOLDER, r"(?i)^(?:Specials?|Especiales|OVAs?|OADs?)$");
 // "Show E05", and inside a season folder or beside other episodes "Show 05"
 re!(E_NUMBER, r"(?i)^(.*?)[ ._-]+E(\d{2,3})\b");
 re!(TRAILING_NUMBER, r"^(.*\D)[ ._-]+(\d{1,3})$");
+// "Show OVA - 01", "Show Special 2", "Show SP1": a special, numbered apart from the show's episodes
+re!(SPECIAL_NUMBER, r"(?i)^(.*?)[ ._-]+(?:OVA|OAD|Specials?|SP)[ ._-]*(\d{1,3})(?:v\d)?\b");
+re!(SPECIAL_NAME, r"(?i)^(.+?)[ ._-]+(?:OVAs?|OADs?|Specials?)$");
 re!(PAREN_YEAR, r"\(\s*(?:19|20)\d{2}\s*\)");
 re!(GENERIC_NUMBERED, r"^(?:vid|img|mov|clip|screen ?recording|recording|video)[ _-]?\d");
 // Words in release names after an episode number that are not its title: languages and streaming sources.
 re!(RELEASE_WORDS, r"(?i)\b(?:GERMAN|FRENCH|SPANISH|ITALIAN|LATINO|CASTELLANO|ESP|ENG|VOSE|SUBBED|DUBBED|DL|NF|AMZN|HMAX|DSNP|ATVP|iNTERNAL)\b");
-re!(TRAILING_SEASON, r"(?i)\s+(?:season|series|temporada|staffel|saison|stagione)\s*\d{1,2}$|\s+s\d{1,2}$|\s+\d(?:st|nd|rd|th)\s+season$|\s+part\s+\d{1,2}$|\s+(?:ii|iii|iv|vi|vii|viii)$");
+re!(TRAILING_SEASON, r"(?i)\s+(?:season|series|temporada|staffel|saison|stagione)\s*\d{1,2}$|\s+s\d{1,2}$|\s+\d(?:st|nd|rd|th)\s+season$|\s+part\s+\d{1,2}$|\s+(?:ii|iii|iv|vi|vii|viii)$|\s+(?:ovas?|oads?|specials?)$");
 re!(
     NOISE,
     r"(?i)\b(?:2160p|1080p|1080i|720p|576p|480p|4K|UHD|BluRay|BDRip|BRRip|BD|DVDRip|R2DVD|DVD|WEB-?DL|WEBRip|WEB|HDTV|HDRip|REMUX|REPACK|PROPER|EXTENDED|UNRATED|x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC\d?(?:\.\d)?|AC-?3|DTS(?:-HD)?|FLAC\d?(?:\.\d)?|DD\d(?:\.\d)?|5\.1|7\.1|10bit|Hi10p?|Hi10|35mm|Dual[ ._-]?Audio|Multi|YTS(?:\.\w+)?|YIFY|RARBG|Scan)\b"
@@ -76,6 +79,12 @@ pub fn season_of(folder: &str) -> Option<(u32, Option<String>)> {
     let n = c.get(2).or(c.get(3))?.as_str().parse().ok()?;
     let show = parse_movie(&c[1]).title;
     (!is_generic(&show)).then_some((n, Some(show)))
+}
+
+/// The show a special belongs to, when a title ends in the word for one: "DNA2 OVA" is a special of "DNA2".
+pub fn special_of(title: &str) -> Option<String> {
+    let base = clean_title(&SPECIAL_NAME.captures(title.trim())?[1]);
+    (!is_generic(&base)).then_some(base)
 }
 
 /// A folder's name read as a title: "Mr. Robot (2015) [1080p]" is "Mr. Robot".
@@ -159,6 +168,12 @@ fn parse_stem(stem: &str, season_hint: Option<u32>) -> Option<Parsed> {
     if let Some(c) = NXNN.captures(&s) {
         let m = c.get(0)?;
         return Some(mk(&s[..m.start()], c[1].parse().ok(), c[2].parse().ok()?, &s[m.end()..]));
+    }
+    // A special: season 0 of the show, which the pages call "Specials"
+    if let Some(c) = SPECIAL_NUMBER.captures(&s) {
+        if !clean_title(&c[1]).is_empty() {
+            return Some(mk(&c[1], Some(0), c[2].parse().ok()?, &s[c.get(0)?.end()..]));
+        }
     }
     // Anime releases: "Title - 05 (...)", only when the group tag or the dash form is explicit
     if let Some(c) = ANIME_DASH.captures(&s) {
@@ -591,5 +606,23 @@ mod tests {
         same("Attack on Titan Part 2", "Attack on Titan");
         assert_eq!(series_key("1923"), "1923");
         assert_ne!(series_key("Doctor Who"), series_key("Doctor Foster"));
+    }
+
+    #[test]
+    fn a_special_is_season_zero_of_its_show() {
+        let got = |p: &str| {
+            let x = parse(p);
+            (x.kind, x.title, x.season, x.episode)
+        };
+        let ep = |title: &str, season: Option<u32>, n: u32| (Kind::Episode, title.to_string(), season, Some(n));
+        assert_eq!(got("[motto] DNA2 - 01 (R2DVD 768x576 x264 Hi10p FLAC Chap).mkv"), ep("DNA2", None, 1));
+        assert_eq!(got("[motto] DNA2 OVA - 01 (R2DVD 768x576 x264 Hi10p FLAC Chap).mkv"), ep("DNA2", Some(0), 1));
+        assert_eq!(got("Frieren Special 2.mkv"), ep("Frieren", Some(0), 2));
+        assert_eq!(got("Show.SP1.1080p.mkv"), ep("Show", Some(0), 1));
+        assert_eq!(series_key("DNA2 OVA"), series_key("DNA2"));
+        assert_eq!(special_of("DNA2 OVA").as_deref(), Some("DNA2"));
+        assert_eq!(special_of("Nova"), None);
+        // Not specials: the letters inside a word
+        assert_eq!(parse("Casanova 2005.mkv").kind, Kind::Movie);
     }
 }
