@@ -16,9 +16,18 @@ body {
   background: transparent;
 }
 
+/* The playing video fills the page: its height is the page's, never the picture's, so the controls stay in view. */
 .mp-video {
   height: 100%;
+  min-height: 0;
+}
+/* With the picture up, the player's middle is a hole onto it. Around the player the page stays solid: a shadow of
+   the page's colour covers everything outside its rounded edge, so only the picture and its bars show through. */
+.mp-video.has-picture {
   --ps-media-backdrop: transparent;
+}
+.mp-video.has-picture > .mp-video-player {
+  box-shadow: 0 0 0 100vmax var(--ps-bg);
 }
 
 /* The app sits in a positioned layer after the browser's video element, so it paints above it. */
@@ -32,7 +41,8 @@ body {
   display: none;
   position: fixed;
   object-fit: contain;
-  background: var(--ps-bg);
+  /* The bars beside the picture are the player's backdrop, as the desktop engine paints them. */
+  background: var(--ps-media-backdrop);
 }
 
 .mp-web-video.is-shown {
@@ -66,10 +76,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--ps-space-24);
-}
-
-.mp-streaming > :first-child {
-  align-self: flex-start;
 }
 
 /* The empty player: its sentence, then one way to open files. */
@@ -313,13 +319,17 @@ body {
   white-space: nowrap;
 }
 
-/* A media page's first line: where it comes from (or its views), and Add a folder / Add files. */
+/* A media page's first line, the same on every page: what changes the view (views, later search and filters) at
+   the start, what acts on the library (Add a folder, Add files) at the end, against the right edge. */
 .mp-page-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--ps-space-12);
+}
+.mp-page-head > .mp-add {
+  margin-left: auto;
 }
 
 .mp-add {

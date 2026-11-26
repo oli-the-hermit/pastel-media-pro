@@ -72,7 +72,6 @@ export function MusicPage({ library }: { library: Library }) {
   return (
     <div className="mp-page">
       <div className="mp-page-head">
-        <p className="mp-note">{strings.library.from(library.roots)}</p>
         <AddButtons preset="music" />
       </div>
       <MediaGrid aria-label={strings.music.albums}>

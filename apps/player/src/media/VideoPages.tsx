@@ -131,7 +131,6 @@ export function MoviesPage({ library }: { library: Library }) {
   }
   return (
     <div className="mp-page">
-      <p className="mp-note">{strings.library.from(library.roots)}</p>
       <MediaGrid aria-label={strings.streaming.views.movies.label}>
         {library.movies.map((v) => (
           <MovieTile key={v.id} video={v} current={playback.video?.id === v.id} onOpen={() => openMovie(v.id)} />
@@ -209,7 +208,6 @@ export function SeriesPage({ library }: { library: Library }) {
   if (open) return <SeriesTitle key={open.id} series={open} onBack={close} />;
   return (
     <div className="mp-page">
-      <p className="mp-note">{strings.library.from(library.roots)}</p>
       <MediaGrid aria-label={strings.streaming.views.series.label}>
         {library.series.map((s) => (
           <SeriesTile key={s.id} series={s} onOpen={() => openSeries(s.id)} />

@@ -100,8 +100,6 @@ export const strings = {
   },
   library: {
     reading: 'Reading your library…',
-    /** A note on the media pages: the folders they come from. */
-    from: (roots: string[]) => (roots.length > 0 ? `From ${roots.join(' · ')}` : 'From files you added'),
     noFolders: 'Add a folder with your music or videos, and they will show here. Nothing in it is ever changed.',
     add: 'Add a folder',
     addFiles: 'Add files',
