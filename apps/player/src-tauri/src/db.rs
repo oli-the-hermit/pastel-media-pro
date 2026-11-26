@@ -7,7 +7,11 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 /// Every migration, in order. Append only: a released one is never edited.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/001_library.sql"), include_str!("../migrations/002_history.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/001_library.sql"),
+    include_str!("../migrations/002_history.sql"),
+    include_str!("../migrations/003_playlists.sql"),
+];
 
 /// Brings a database up to the latest version.
 pub fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {

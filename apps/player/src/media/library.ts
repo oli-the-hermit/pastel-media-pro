@@ -150,6 +150,12 @@ export const canAddFolders = () => isDesktop();
 
 const covers = new Map<string, Promise<string | undefined>>();
 
+/** An album's cover from the desktop app, asked for once per album. */
+function loadCover(albumId: string): Promise<string | undefined> {
+  if (!covers.has(albumId)) covers.set(albumId, invoke<string | null>('library_cover', { albumId }).then((c) => c ?? undefined, () => undefined));
+  return covers.get(albumId)!;
+}
+
 /** An album's cover: a data URL from the desktop app (fetched once per album), or the dev server's URL. */
 export function useCover(albumId: string): string | undefined {
   const [cover, setCover] = useState<string | undefined>();
@@ -164,13 +170,33 @@ export function useCover(albumId: string): string | undefined {
       return;
     }
     let alive = true;
-    if (!covers.has(albumId)) covers.set(albumId, invoke<string | null>('library_cover', { albumId }).then((c) => c ?? undefined, () => undefined));
-    void covers.get(albumId)!.then((c) => alive && setCover(c));
+    void loadCover(albumId).then((c) => alive && setCover(c));
     return () => {
       alive = false;
     };
   }, [albumId]);
   return cover;
+}
+
+/** Several albums' covers at once (a playlist's songs come from many albums), by album id; only the ones that have one. */
+export function useCovers(albumIds: readonly string[]): Record<string, string> {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const wanted = albumIds.join('|');
+  useEffect(() => {
+    const ids = wanted ? wanted.split('|') : [];
+    if (!isDesktop()) {
+      setUrls(Object.fromEntries(ids.flatMap((id) => (webCovers.has(id) ? [[id, webCovers.get(id)!]] : []))));
+      return;
+    }
+    let alive = true;
+    for (const id of ids) {
+      void loadCover(id).then((c) => alive && c && setUrls((known) => (known[id] === c ? known : { ...known, [id]: c })));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [wanted]);
+  return urls;
 }
 
 const images = new Map<string, Promise<string | undefined>>();

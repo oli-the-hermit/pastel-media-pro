@@ -12,6 +12,7 @@ import {
   type AlbumEntry, type ArtistEntry, type MusicSort, type MusicView,
 } from './music';
 import { usePlayback } from './playback';
+import { useAddToPlaylist } from './PlaylistActions';
 import { useRemembered } from './remember';
 import { SortMenu } from './SortMenu';
 
@@ -70,6 +71,8 @@ function AlbumsGrid({ albums, onOpen }: { albums: AlbumEntry[]; onOpen: (id: str
 /** Songs as a list: their number in it, title and artist, album, when they were added, length. */
 function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
   const playback = usePlayback();
+  const addTo = useAddToPlaylist();
+  const paths = useMemo(() => new Map(songs.map((t) => [t.id, t.path])), [songs]);
   const [shown, sentinel] = useShown(songs.length, songs);
   const tracks = useMemo(
     () =>
@@ -93,6 +96,7 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
           else playback.playTracks(songs, songs.findIndex((x) => x.id === t.id));
         }}
         onPause={playback.engine.pause}
+        rowActions={(t) => addTo([paths.get(t.id) ?? ''].filter(Boolean))}
       />
       {shown < songs.length ? <div ref={sentinel} className="mp-songs-more" aria-hidden="true" /> : undefined}
     </div>
@@ -102,6 +106,7 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
 function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel: string; onBack: () => void }) {
   const cover = useCover(album.coverId);
   const playback = usePlayback();
+  const addTo = useAddToPlaylist();
   const tracks = album.tracks;
   const view = useMemo(
     () => toAlbum({ ...asLibAlbum(album), artist: album.various ? strings.music.variousArtists : album.artist }, tracks, cover),
@@ -127,6 +132,8 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
           else playback.playTracks(tracks, i);
         }}
         onPause={playback.engine.pause}
+        actions={addTo(tracks.map((t) => t.path))}
+        rowActions={(t) => addTo(tracks.filter((x) => x.id === t.id).map((x) => x.path))}
       />
     </div>
   );
