@@ -422,7 +422,8 @@ pub fn read_file(f: &OnDisk, root: Option<&Path>, cache: &Path, counts: &FolderC
         MediaKind::Video => {
             let rel = rel_of(root, &f.path);
             let parsed = parse::parse(&rel);
-            let show_folder = parse::show_folder(&rel);
+            let root_name = root.and_then(|r| r.file_name()).map(|n| n.to_string_lossy().into_owned());
+            let show_folder = parse::show_folder_in(&rel, root_name.as_deref());
             let lone = parsed.kind == Kind::Movie && f.path.parent().map(|d| counts.videos_in(d) == 1).unwrap_or(false);
             let show_dir = show_folder.as_ref().and_then(|_| f.path.parent()?.parent().map(Path::to_path_buf));
             let art = matching::art(&f.path, lone, show_dir.as_deref());
