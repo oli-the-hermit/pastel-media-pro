@@ -119,6 +119,8 @@ async function main() {
       await shot(theme, '27-settings', openView(strings.account.settings));
       await shot(theme, '28-settings-playback', () => page.getByRole('tab', { name: strings.settings.tabs.playback.label }).click());
       await closeDialog();
+      await shot(theme, '29-about', openView(strings.account.about));
+      await closeDialog();
 
       // ── Help, and the toast of Switch profile (it expires, so the page is reloaded after) ──
       await shot(theme, '30-help', () => page.getByRole('button', { name: strings.topBar.help }).click());
