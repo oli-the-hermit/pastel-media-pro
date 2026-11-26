@@ -339,6 +339,8 @@ pub async fn engine_status(engine: State<'_, Engine>) -> Result<Value, String> {
             // Diagnostics: frames really drawn, by which output, at what size.
             "fps": g("estimated-vf-fps"), "vo": g("current-vo"), "hwdec": g("hwdec-current"),
             "width": g("width"), "height": g("height"), "osdWidth": g("osd-width"), "osdHeight": g("osd-height"),
+            // The picture as it is shown (aspect and rotation applied), and whether its window is up with a frame in it.
+            "dwidth": g("dwidth"), "dheight": g("dheight"), "voReady": g("vo-configured"), "frame": g("estimated-frame-number"),
         }))
     }
     #[cfg(not(windows))]

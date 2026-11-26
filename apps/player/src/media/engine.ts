@@ -25,6 +25,13 @@ export interface EngineStatus {
   idle?: string;
   buffering?: string;
   video?: string;
+  /** The picture's size as shown (aspect and rotation applied); empty for a song and until it is known. */
+  dwidth?: string;
+  dheight?: string;
+  /** 'yes' once mpv's window for the picture is up. */
+  voReady?: string;
+  /** The frame being shown, counted from the start; empty when mpv can't tell. */
+  frame?: string;
   /** The last file mpv could not open; `seq` grows with each failure. */
   loadError?: { seq: number; path: string; reason: string } | null;
 }
@@ -54,7 +61,20 @@ function toState(s: EngineStatus): MediaState {
     rate: Number(s.speed) || 1,
     waiting: s.buffering === 'yes',
     ended: s.eof === 'yes',
+    width: Number(s.dwidth) || 0,
+    height: Number(s.dheight) || 0,
   };
+}
+
+/**
+ * Whether the engine is showing this file's picture: its window is up and a frame is in it. `sinceMs` is how long
+ * ago the file was asked for: a file whose frames mpv can't count, or whose path it reports differently, still
+ * counts once its window has been up a while, so a video is never left behind the loading layer.
+ */
+export function hasPicture(s: EngineStatus, path: string, sinceMs: number): boolean {
+  if (s.voReady !== 'yes') return sinceMs > 6000 && !!s.path;
+  if (s.path === path && (Number(s.frame) >= 1 || Number(s.pos) > 0.15)) return true;
+  return sinceMs > 2500;
 }
 
 /** The engine's state, polled four times a second (the S7 pattern). */

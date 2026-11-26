@@ -49,16 +49,18 @@ interface PlayerPageProps {
   library: Library | null;
   /** The Open dialog. */
   onOpenFiles: () => void;
+  /** The video's Back button: stop it and go back to where it was started from. */
+  onLeaveVideo?: () => void;
 }
 
 /**
  * The player, the default start page (D15, D16): the playing video, the playing song, or, with nothing playing,
  * a calm empty page that takes a drop or opens files.
  */
-export function PlayerPage({ library, onOpenFiles }: PlayerPageProps) {
+export function PlayerPage({ library, onOpenFiles, onLeaveVideo }: PlayerPageProps) {
   const playback = usePlayback();
   const track = useNowPlayingTrack(library);
-  if (playback.video) return <VideoView />;
+  if (playback.video) return <VideoView onBack={onLeaveVideo} />;
   if (track) {
     return (
       <div className="mp-player">

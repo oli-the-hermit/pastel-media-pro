@@ -110,7 +110,7 @@ export function libraryChanged() {
 
 /**
  * The library, read the first time `needed` is true (a page that shows it opened) and again whenever the folders
- * change; `null` until then and while it loads.
+ * change; `null` until it has been read once.
  */
 export function useLibrary(needed: boolean): Library | null {
   const source = isDesktop() ? 'desktop' : WEB_TEST_MEDIA ? 'web' : 'none';
@@ -129,7 +129,8 @@ export function useLibrary(needed: boolean): Library | null {
     if (!asked) return;
     let alive = true;
     const show = (l: Library) => alive && setLibrary(l);
-    setLibrary(null);
+    // Read again after a change, what is on screen stays until the new library arrives: a title page left open
+    // is still there when a video ends, and nothing flashes back to "Reading your library…".
     if (source === 'desktop') invoke<Library>('library_get').then(show, () => show(EMPTY_LIBRARY));
     else if (source === 'web') fetchWebLibrary().then(show, () => show(EMPTY_LIBRARY));
     else setLibrary(EMPTY_LIBRARY);

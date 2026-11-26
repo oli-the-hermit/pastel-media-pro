@@ -6,7 +6,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaElement, type MediaController } from '@pastel-studio/react';
 import { isDesktop } from '@pastel-studio/desktop';
-import { engine, useEngine, type Engine } from './engine';
+import { engine, hasPicture, useEngine, type Engine } from './engine';
 import type { LibTrack, LibVideo } from './library';
 import type { Opened } from './opened';
 
@@ -25,6 +25,11 @@ export interface Playback {
   index: number;
   current: LibTrack | null;
   video: LibVideo | null;
+  /**
+   * The video's picture is on screen. Until then the player stays solid and shows it is loading; the page only
+   * turns see-through, for the picture behind it, once there is a picture to see.
+   */
+  pictureReady: boolean;
   /** The last thing that could not be played, for a toast: 'unplayable', 'browser', or the engine's reason. */
   error: string | null;
   /** A song that could not be opened and was skipped, for a toast (its path). */
@@ -119,6 +124,10 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   const [skipped, setSkipped] = useState<string | null>(null);
   const [failure, setFailure] = useState<PlayFailure | null>(null);
   const [box, setVideoBox] = useState<VideoBox>(null);
+  // The path of the video whose picture is up, and when its file was asked for.
+  const [pictureFor, setPictureFor] = useState<string | null>(null);
+  const askedAt = useRef(0);
+  const stopTimer = useRef<number>();
 
   const mpv = useMpvBackend();
   const web = useWebBackend(videoEl, setError);
@@ -127,6 +136,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
 
   const load = useCallback(
     (path: string) => {
+      window.clearTimeout(stopTimer.current);
       setFailure(null);
       void loadFile(path).catch((e) => setError(String(e)));
     },
@@ -165,6 +175,8 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       setQueue([]);
       setIndex(-1);
       setVideo(v);
+      setPictureFor(null);
+      askedAt.current = Date.now();
       load(v.path);
     },
     [load],
@@ -180,12 +192,26 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     [playVideo, playTracks],
   );
 
+  // The video leaves the page first, which turns it solid; the engine lets go of its picture a moment later,
+  // so nothing behind the window shows in between.
   const stop = useCallback(() => {
-    stopFile();
+    const wasVideo = video != null;
     setVideo(null);
+    setPictureFor(null);
     setQueue([]);
     setIndex(-1);
-  }, [stopFile]);
+    window.clearTimeout(stopTimer.current);
+    if (wasVideo) stopTimer.current = window.setTimeout(stopFile, 80);
+    else stopFile();
+  }, [stopFile, video]);
+
+  // The picture is up: the engine says so (the desktop app), or the element knows its size (the browser).
+  const status = native ? mpv.media.status : null;
+  const webSized = !native && web.media.width > 0 && web.media.duration > 0;
+  useEffect(() => {
+    if (!video || pictureFor === video.path) return;
+    if (status ? hasPicture(status, video.path, Date.now() - askedAt.current) : webSized) setPictureFor(video.path);
+  }, [video, pictureFor, status, webSized]);
 
   // A file the engine could not open (mpv's end-file error): a song is skipped for the next one; otherwise the
   // player says so. Each failure once: failures from before this page loaded are not shown.
@@ -231,6 +257,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       index,
       current: index >= 0 ? queue[index] ?? null : null,
       video,
+      pictureReady: !!video && pictureFor === video.path,
       error,
       skipped,
       failure,
@@ -245,7 +272,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       clearFailure: () => setFailure(null),
       setVideoBox,
     }),
-    [media, queue, index, video, error, skipped, failure, playTracks, playVideo, playOpened, step, stop],
+    [media, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop],
   );
   const shown = !!video && !!box;
   return (
