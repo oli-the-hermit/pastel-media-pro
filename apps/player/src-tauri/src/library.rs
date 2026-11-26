@@ -349,11 +349,34 @@ pub fn assemble(roots: Vec<String>, audio: Vec<(LibTrack, String)>, mut videos: 
         groups.entry((album_artist.to_lowercase(), t.album.to_lowercase())).or_default().push(t);
     }
     let (mut lib, mut sources) = (Library { roots, ..Default::default() }, HashMap::new());
-    for (i, ((_, _), mut tracks)) in groups.into_iter().enumerate() {
+    // A compilation's songs carry their own artists and often no album artist, which made one album per artist.
+    // Groups that share a title and a folder are one album; it has no artist of its own (the page says "Various artists").
+    let mut merged: Vec<(Vec<LibTrack>, bool)> = vec![];
+    let mut home: HashMap<(String, String), usize> = HashMap::new();
+    for ((_, title), tracks) in groups {
+        let dirs: Vec<String> = tracks.iter().map(|t| Path::new(&t.path).parent().map(|d| d.to_string_lossy().to_lowercase()).unwrap_or_default()).collect();
+        let found = if title.is_empty() { None } else { dirs.iter().find_map(|d| home.get(&(title.clone(), d.clone())).copied()) };
+        let at = match found {
+            Some(at) => {
+                merged[at].0.extend(tracks);
+                merged[at].1 = true;
+                at
+            }
+            None => {
+                merged.push((tracks, false));
+                merged.len() - 1
+            }
+        };
+        for d in dirs {
+            home.entry((title.clone(), d)).or_insert(at);
+        }
+    }
+    for (i, (mut tracks, compilation)) in merged.into_iter().enumerate() {
         tracks.sort_by(|a, b| (a.disc, a.number, &a.path).cmp(&(b.disc, b.number, &b.path)));
         let id = format!("a{i}");
         let first = &tracks[0];
-        let artist = tracks.iter().map(|t| t.artist.clone()).find(|a| !a.is_empty()).unwrap_or_default();
+        let several = tracks.iter().any(|t| !t.artist.eq_ignore_ascii_case(&first.artist));
+        let artist = if compilation && several { String::new() } else { tracks.iter().map(|t| t.artist.clone()).find(|a| !a.is_empty()).unwrap_or_default() };
         let mut album = LibAlbum { id: id.clone(), title: first.album.clone(), artist, year: tracks.iter().find_map(|t| t.year), track_ids: vec![] };
         sources.insert(id.clone(), tracks.iter().map(|t| PathBuf::from(&t.path)).collect::<Vec<_>>());
         for (j, mut t) in tracks.into_iter().enumerate() {
@@ -978,5 +1001,27 @@ mod tests {
         std::fs::write(&empty, b"").unwrap();
         assert_eq!(read_track(&empty).map(|(t, _)| t.title), None);
         std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_compilation_in_one_folder_is_one_album_with_no_artist_of_its_own() {
+        let track = |title: &str, artist: &str, album: &str, path: &str| {
+            (LibTrack { id: String::new(), title: title.into(), artist: artist.into(), album: album.into(), number: None, disc: None, year: None, duration: 1.0, path: path.into(), unplayable: false, added_at: 0 }, artist.to_string())
+        };
+        let (lib, _) = assemble(
+            vec![],
+            vec![
+                track("One", "Cecil Sharp Project", "English Folk", r"D:\Music\English Folk\01.mp3"),
+                track("Two", "Bella Hardy", "English Folk", r"D:\Music\English Folk\02.mp3"),
+                track("Three", "Bella Hardy", "English Folk", r"D:\Music\English Folk\03.mp3"),
+                // The same title elsewhere is another album; an album on two discs stays one, by its artist
+                track("Other", "Someone", "English Folk", r"D:\Music\Someone\English Folk\01.mp3"),
+                track("A", "Pentangle", "Basket of Light", r"D:\Music\Pentangle\Basket of Light\CD1\01.mp3"),
+                track("B", "Pentangle", "Basket of Light", r"D:\Music\Pentangle\Basket of Light\CD2\01.mp3"),
+            ],
+            vec![],
+        );
+        let albums: Vec<_> = lib.albums.iter().map(|a| (a.title.as_str(), a.artist.as_str(), a.track_ids.len())).collect();
+        assert_eq!(albums, vec![("English Folk", "", 3), ("Basket of Light", "Pentangle", 2), ("English Folk", "Someone", 1)]);
     }
 }
