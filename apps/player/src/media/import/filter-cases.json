@@ -1,0 +1,43 @@
+{
+  "$comment": "Import filter cases shared by the review list (filters.test.ts) and the rescan (filters.rs): the same file must pass or not on both sides. Unknown values (a length the probe could not read) always pass.",
+  "presets": {
+    "movies": { "preset": "movies", "kinds": ["video"], "minDuration": 1200, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": null, "extensions": null, "skipExtras": true },
+    "music": { "preset": "music", "kinds": ["audio"], "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": null, "extensions": null, "skipExtras": false },
+    "everything": { "preset": "everything", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": null, "extensions": null, "skipExtras": false }
+  },
+  "extras": [
+    { "rel": "Heat (1995)/Heat.1995.1080p.BluRay.x264-GROUP.mkv", "extra": false },
+    { "rel": "Heat (1995)/Sample/heat-sample.mkv", "extra": true },
+    { "rel": "Heat (1995)/heat.1995.1080p-sample.mkv", "extra": true },
+    { "rel": "Heat (1995)/sample-heat.1995.mkv", "extra": true },
+    { "rel": "Heat (1995)/Heat-trailer.mp4", "extra": true },
+    { "rel": "Heat (1995)/Featurettes/Making the film.mkv", "extra": true },
+    { "rel": "Heat (1995)/Behind The Scenes/Day one.mp4", "extra": true },
+    { "rel": "Heat (1995)/Deleted Scenes/Scene 4.mp4", "extra": true },
+    { "rel": "Heat (1995)/trailer.mp4", "extra": true },
+    { "rel": "Extras/Season 1/Extras.S01E01.mkv", "extra": true },
+    { "rel": "Shows/Extras (2005)/Season 1/Extras.S01E01.mkv", "extra": false },
+    { "rel": "Free Sample Day (2020).mkv", "extra": false },
+    { "rel": "The Trailer Park Boys S01E01.mkv", "extra": false }
+  ],
+  "cases": [
+    { "name": "a film passes the movies preset", "preset": "movies", "file": { "kind": "video", "ext": "mkv", "size": 1500000000, "duration": 6000, "height": 1080, "rel": "Heat (1995)/Heat.mkv" }, "passes": true },
+    { "name": "a short clip is left out of movies", "preset": "movies", "file": { "kind": "video", "ext": "mp4", "size": 30000000, "duration": 30, "height": 1080, "rel": "Recording 2026-05-18 141121.mp4" }, "passes": false },
+    { "name": "an anime episode of 23 minutes is a series episode", "preset": "movies", "file": { "kind": "video", "ext": "mkv", "size": 800000000, "duration": 1395, "height": 576, "rel": "DNA2 - 01.mkv" }, "passes": true },
+    { "name": "a length the probe could not read passes", "preset": "movies", "file": { "kind": "video", "ext": "ts", "size": 1000000, "duration": null, "height": null, "rel": "Recording.ts" }, "passes": true },
+    { "name": "a sample is left out of movies", "preset": "movies", "file": { "kind": "video", "ext": "mkv", "size": 50000000, "duration": 1300, "height": 1080, "rel": "Heat (1995)/Sample/heat-sample.mkv" }, "passes": false },
+    { "name": "songs are left out of movies", "preset": "movies", "file": { "kind": "audio", "ext": "mp3", "size": 5000000, "duration": 240, "height": null, "rel": "Album/01 Song.mp3" }, "passes": false },
+    { "name": "a song passes music", "preset": "music", "file": { "kind": "audio", "ext": "flac", "size": 30000000, "duration": 240, "height": null, "rel": "Album/01 Song.flac" }, "passes": true },
+    { "name": "a video is left out of music", "preset": "music", "file": { "kind": "video", "ext": "mp4", "size": 60000000, "duration": 222, "height": 1080, "rel": "videoclips/Coco Jamboo.mp4" }, "passes": false },
+    { "name": "everything takes a short clip", "preset": "everything", "file": { "kind": "video", "ext": "mp4", "size": 30000000, "duration": 30, "height": 1080, "rel": "Recording.mp4" }, "passes": true },
+    { "name": "a size floor", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": 100000000, "maxBytes": null, "minHeight": null, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mp4", "size": 30000000, "duration": 30, "height": 1080, "rel": "a.mp4" }, "passes": false },
+    { "name": "a size ceiling", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": 10000000000, "minHeight": null, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mkv", "size": 20540842679, "duration": 6668, "height": 1080, "rel": "The Devils.mkv" }, "passes": false },
+    { "name": "a picture floor, 1080p", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": 1080, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mp4", "size": 1205776016, "duration": 7508, "height": 720, "rel": "The Devils 720p.mp4" }, "passes": false },
+    { "name": "a scope film 1920x800 counts as 1080p (width decides when the height is cropped)", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": 1080, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mp4", "size": 1497887229, "duration": 5315, "height": 800, "width": 1920, "rel": "Cleopatra Jones.mp4" }, "passes": true },
+    { "name": "a cropped 1080p film (1760x1072) counts as 1080p: tiers allow 10 %", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": 1080, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mp4", "size": 1685129076, "duration": 5653, "height": 1072, "width": 1760, "rel": "Emmanuelle.mp4" }, "passes": true },
+    { "name": "a DVD (768x576) is not 720p", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": 720, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mkv", "size": 809631576, "duration": 1395, "height": 576, "width": 768, "rel": "DNA2 - 01.mkv" }, "passes": false },
+    { "name": "the picture floor ignores songs", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": 1080, "extensions": null, "skipExtras": false }, "file": { "kind": "audio", "ext": "mp3", "size": 5000000, "duration": 240, "height": null, "rel": "a.mp3" }, "passes": true },
+    { "name": "only the chosen extensions, any case", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": null, "minBytes": null, "maxBytes": null, "minHeight": null, "extensions": ["mkv"], "skipExtras": false }, "file": { "kind": "video", "ext": "MP4", "size": 1, "duration": 1, "height": 1, "rel": "a.MP4" }, "passes": false },
+    { "name": "a length ceiling", "filters": { "preset": "custom", "kinds": null, "minDuration": null, "maxDuration": 600, "minBytes": null, "maxBytes": null, "minHeight": null, "extensions": null, "skipExtras": false }, "file": { "kind": "video", "ext": "mp4", "size": 1, "duration": 6000, "height": 1080, "rel": "a.mp4" }, "passes": false }
+  ]
+}

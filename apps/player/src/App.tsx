@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccountMenu, AppShell, AppShellPage, EmptyState, IconLogOut, IconPlay, Modal, NavRail, NowPlayingBar, ToastRegion, useDrawer, useToasts,
 } from '@pastel-studio/react';
+import { ImportProvider } from './media/import/ImportFlow';
+import { ImportQueue } from './media/import/ImportQueue';
 import { NoFolders } from './media/LibraryFolders';
-import { useLibrary, type Library } from './media/library';
+import { isEmptyLibrary, useLibrary, type Library } from './media/library';
 import { MusicPage } from './media/MusicPage';
 import { pickFiles, useOpenedFiles } from './media/opened';
 import { PlaybackProvider, usePlayback } from './media/playback';
@@ -12,8 +14,10 @@ import { StreamingPage } from './media/StreamingPage';
 import { rememberLastPage, useSettings } from './settings';
 import { accountViews } from './shell/accountViews';
 import { AppTopBar } from './shell/AppTopBar';
+import { HelpView } from './shell/HelpView';
 import { NotifyContext } from './shell/notify';
 import { startPage, visiblePages, type PageKey } from './shell/pages';
+import { usePlayerShortcuts } from './shell/shortcuts';
 import { strings } from './strings';
 import { useAppearance } from './theme';
 
@@ -25,12 +29,13 @@ interface PageContentProps {
   page: PageKey;
   library: Library | null;
   onOpenFiles: () => void;
+  onLeaveVideo: () => void;
 }
 
-function PageContent({ page, library, onOpenFiles }: PageContentProps) {
-  if (page === 'player') return <PlayerPage library={library} onOpenFiles={onOpenFiles} />;
+function PageContent({ page, library, onOpenFiles, onLeaveVideo }: PageContentProps) {
+  if (page === 'player') return <PlayerPage library={library} onOpenFiles={onOpenFiles} onLeaveVideo={onLeaveVideo} />;
   // Nothing to read yet: the media pages ask for one folder (ux.md, "capture before organising").
-  if ((page === 'music' || page === 'streaming') && library && library.roots.length === 0) return <NoFolders />;
+  if ((page === 'music' || page === 'streaming') && library && isEmptyLibrary(library)) return <NoFolders preset={page === 'music' ? 'music' : 'movies'} />;
   if (page === 'streaming') return <StreamingPage library={library} />;
   if (page === 'music') return library ? <MusicPage library={library} /> : <EmptyState>{strings.library.reading}</EmptyState>;
   return <EmptyState>{strings.pages[page].empty}</EmptyState>;
@@ -75,7 +80,14 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
     if (!pages.some((p) => p.key === page)) go('player');
   }, [pages, page, go]);
 
-  const { error, clearError, playOpened } = playback;
+  usePlayerShortcuts(playback);
+
+  const { error, clearError, skipped, clearSkipped, playOpened } = playback;
+  useEffect(() => {
+    if (!skipped) return;
+    showToast(strings.playback.skipped(skipped.split(/[\\/]/).pop() ?? skipped), 'error');
+    clearSkipped();
+  }, [skipped, clearSkipped, showToast]);
   useEffect(() => {
     if (!error) return;
     const words: Record<string, string> = { unplayable: strings.playback.unplayable, browser: strings.playback.browser };
@@ -100,16 +112,33 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
     );
   }, [playOpened, showToast]);
 
-  // A video picked on any page plays on the player.
+  // A video picked on any page plays on the player. The page it was picked on is kept, with whatever it had open
+  // (a film's or a series' title page): the player's Back button returns there.
   const video = playback.video != null;
+  const cameFrom = useRef<PageKey | null>(null);
   useEffect(() => {
-    if (video) setPage('player');
+    if (!video) {
+      cameFrom.current = null;
+      return;
+    }
+    setPage((p) => {
+      if (p !== 'player') cameFrom.current = p;
+      return 'player';
+    });
   }, [video]);
+  const { stop } = playback;
+  const leaveVideo = useCallback(() => {
+    const back = cameFrom.current;
+    cameFrom.current = null;
+    stop();
+    if (back && pages.some((p) => p.key === back)) go(back);
+  }, [stop, pages, go]);
 
   return (
     <NotifyContext.Provider value={showToast}>
+      <ImportProvider>
       <AppShell
-        surface={video && page === 'player' ? 'transparent' : 'solid'}
+        surface={video && page === 'player' && playback.pictureReady ? 'transparent' : 'solid'}
         nav={
           <NavRail
             label={strings.nav.label}
@@ -117,7 +146,10 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
             activeKey={page}
             onSelect={(key) => {
               // The picture lives on the player page; leaving it stops the video (until the mini player, Phase 7).
-              if (video && key !== 'player') playback.stop();
+              if (video && key !== 'player') {
+                cameFrom.current = null;
+                playback.stop();
+              }
               go(key as PageKey);
             }}
             variant={drawer.expanded ? 'expanded' : 'rail'}
@@ -130,19 +162,21 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
         bottomBar={playback.current && page !== 'player' ? <NowPlaying library={library} /> : undefined}
         overlays={
           <>
+            <ImportQueue />
             <ToastRegion toasts={toasts} />
             <Modal isOpen={helpOpen} title={strings.help.title} onClose={() => setHelpOpen(false)}>
-              <EmptyState>{strings.help.empty}</EmptyState>
+              <HelpView />
             </Modal>
           </>
         }
       >
         {pages.map(({ key }) => (
           <AppShellPage key={key} active={key === page} fill={key === 'player' && video}>
-            <PageContent page={key} library={library} onOpenFiles={openFiles} />
+            <PageContent page={key} library={library} onOpenFiles={openFiles} onLeaveVideo={leaveVideo} />
           </AppShellPage>
         ))}
       </AppShell>
+      </ImportProvider>
     </NotifyContext.Provider>
   );
 }

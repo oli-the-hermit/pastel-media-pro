@@ -1,9 +1,13 @@
-//! The library, an early form of Phase 3's: the folders the person adds in Settings → Library (kept in
-//! `library-folders.json` in the app's config folder), plus, in a build with the `test-media` feature, the repo's
-//! `media_to_test` folder (or `PASTEL_TEST_MEDIA`). They are read when a media page first opens (never at launch,
-//! D16) and kept in memory until a folder is added or removed. Read-only: nothing is ever written to them.
-//! The real library (SQLite, the review list, the import queue, rescans) is Phase 3; this follows spike S6.
+//! The library (Phase 3): what `import.rs` put in `library.db`, shaped for the pages (albums; films and series). It
+//! is opened when a media page first needs it, never at launch (D16), and kept in memory until an import, a rescan or
+//! a removed place changes it. On that first use the places are checked for changes in the background. The folders
+//! are the person's places; a build with the `test-media` feature also adds the repo's `media_to_test` folder (or
+//! `PASTEL_TEST_MEDIA`). Read-only: nothing is ever written to the person's folders.
+//!
+//! The scan below (`scan`, `scan_all`) is the Phase 2 reader, kept for the web version's test library
+//! (`bin/library-export.rs`); both share how songs become albums and episodes become series (`assemble`).
 
+use crate::db::Db;
 use crate::formats::{self, MediaKind};
 use crate::parse::{self, Kind};
 use base64::Engine as _;
@@ -13,11 +17,13 @@ use lofty::picture::PictureType;
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use lofty::tag::{ItemKey, Tag};
+use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
 use walkdir::WalkDir;
 
 const FOLDER_COVERS: &[&str] = &["cover.jpg", "folder.jpg", "front.jpg", "album.jpg", "cover.png", "folder.png"];
@@ -49,7 +55,7 @@ pub struct LibAlbum {
     pub track_ids: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LibVideo {
     pub id: String,
@@ -57,10 +63,20 @@ pub struct LibVideo {
     pub year: Option<u16>,
     pub season: Option<u32>,
     pub episode: Option<u32>,
-    /// An episode's own title, when its file name gives one.
+    /// An episode's own title, when its file name (or its `.nfo`) gives one.
     pub episode_title: Option<String>,
     pub file_name: String,
     pub path: String,
+    /// Seconds, from the quick probe.
+    pub duration: Option<f64>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    /// From a `.nfo` or a sidecar.
+    pub overview: Option<String>,
+    pub genres: Vec<String>,
+    /// Images (`library_image`), from the art beside the file.
+    pub poster: Option<String>,
+    pub backdrop: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -68,13 +84,14 @@ pub struct LibVideo {
 pub struct LibSeries {
     pub id: String,
     pub title: String,
+    pub poster: Option<String>,
     pub episodes: Vec<LibVideo>,
 }
 
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Library {
-    /// The folders that were read, as shown to people; empty when there are none.
+    /// The folders it comes from, as shown to people; empty when there are none.
     pub roots: Vec<String>,
     pub tracks: Vec<LibTrack>,
     pub albums: Vec<LibAlbum>,
@@ -85,8 +102,12 @@ pub struct Library {
 
 #[derive(Default)]
 pub struct LibraryState {
-    /// The folders the person added (canonical paths).
+    /// The places' folders (canonical), and the test folder in a build that has one: the engine opens files in them.
     folders: Mutex<Vec<PathBuf>>,
+    /// The database is open, `library-folders.json` moved into it, the places known.
+    ready: AtomicBool,
+    /// Grows at every change: a library built before a change is not kept.
+    generation: AtomicU64,
     library: Mutex<Option<Library>>,
     /// Album id → the files to look in for its cover, and the thumbnail once made.
     cover_sources: Mutex<HashMap<String, Vec<PathBuf>>>,
@@ -102,15 +123,19 @@ pub fn root() -> Option<PathBuf> {
     p.canonicalize().ok().filter(|p| p.is_dir())
 }
 
-/// Every folder the library reads: the test folder first (in a build that has one), then the person's.
-pub fn roots(state: &LibraryState) -> Vec<PathBuf> {
-    root().into_iter().chain(state.folders.lock().unwrap().iter().cloned()).collect()
-}
-
-/// Whether the engine may open this path: only files inside the library's folders.
-pub fn allowed(state: &LibraryState, path: &str) -> bool {
+/// Whether the engine may open this path: a file in the library, or inside one of its places.
+pub fn allowed(app: &AppHandle, path: &str) -> bool {
     let Ok(p) = Path::new(path).canonicalize() else { return false };
-    p.is_file() && roots(state).iter().any(|r| p.starts_with(r))
+    if !p.is_file() {
+        return false;
+    }
+    let state = app.state::<LibraryState>();
+    if state.folders.lock().unwrap().iter().any(|r| p.starts_with(r)) {
+        return true;
+    }
+    // A file added on its own: only once the library is open (a page showed it).
+    state.ready.load(Ordering::SeqCst)
+        && app.state::<Db>().conn().ok().is_some_and(|c| c.query_row("SELECT 1 FROM files WHERE path = ?1", [p.to_string_lossy()], |_| Ok(())).is_ok())
 }
 
 /// A folder as people see it: without Windows' `\\?\` long-path prefix.
@@ -118,74 +143,59 @@ pub fn shown(path: &Path) -> String {
     path.to_string_lossy().trim_start_matches(r"\\?\").to_string()
 }
 
-/// The list after adding `folder`: unchanged if it is already read (itself or a folder above it); folders inside it
-/// make way for it, so no file is read twice.
-pub fn with_folder(folders: &[PathBuf], folder: PathBuf) -> Vec<PathBuf> {
-    if folders.iter().any(|f| folder.starts_with(f)) {
-        return folders.to_vec();
-    }
-    let mut out: Vec<PathBuf> = folders.iter().filter(|f| !f.starts_with(&folder)).cloned().collect();
-    out.push(folder);
-    out
-}
-
 fn folders_file(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("library-folders.json"))
 }
 
-/// Reads the saved folders at start (a tiny file; folders that are gone are left out until they come back).
-pub fn load_folders(app: &AppHandle) {
-    let saved: Vec<String> = folders_file(app)
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let folders = saved.iter().filter_map(|p| PathBuf::from(p).canonicalize().ok()).filter(|p| p.is_dir()).collect();
-    *app.state::<LibraryState>().folders.lock().unwrap() = folders;
-}
-
-fn save_folders(app: &AppHandle, folders: &[PathBuf]) -> Result<(), String> {
-    let file = folders_file(app).ok_or("no config folder")?;
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+/// The folders of Phase 2's `library-folders.json` become places (filters "Everything", as they were read), once.
+/// They are imported by the first check for changes. The file is renamed, not deleted.
+fn move_folders_file(app: &AppHandle, conn: &Connection) {
+    let Some(file) = folders_file(app).filter(|f| f.is_file()) else { return };
+    let saved: Vec<String> = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    for folder in saved {
+        let p = PathBuf::from(&folder);
+        let p = p.canonicalize().unwrap_or(p);
+        let _ = crate::import::adopt_folder(conn, &p, &crate::filters::Filters::everything());
     }
-    let list: Vec<String> = folders.iter().map(|p| shown(p)).collect();
-    std::fs::write(file, serde_json::to_string_pretty(&list).unwrap_or_default()).map_err(|e| e.to_string())
+    let _ = std::fs::rename(&file, file.with_extension("moved-to-library-db.json"));
 }
 
-/// Replaces the folder list: saved, and the library is read again on its next use.
-fn set_folders(app: &AppHandle, folders: Vec<PathBuf>) -> Result<Vec<String>, String> {
-    save_folders(app, &folders)?;
+/// Opens the library database on its first use: moves the old folder list in, adds a test build's folder, and
+/// learns the places. Cheap after the first call.
+pub fn ensure_ready(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<LibraryState>();
-    *state.folders.lock().unwrap() = folders.clone();
+    if state.ready.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    {
+        let db = app.state::<Db>();
+        let conn = db.conn()?;
+        move_folders_file(app, &conn);
+        if let Some(test) = root() {
+            let _ = crate::import::adopt_folder(&conn, &test, &crate::filters::Filters::everything());
+        }
+    }
+    state.ready.store(true, Ordering::SeqCst);
+    refresh_places(app);
+    Ok(())
+}
+
+/// Reads the places' folders again (after one is added or removed).
+pub fn refresh_places(app: &AppHandle) {
+    let db = app.state::<Db>();
+    let Ok(conn) = db.conn() else { return };
+    let places: Vec<PathBuf> = crate::import::places(&conn).into_iter().map(|p| p.root).chain(root()).collect();
+    drop(conn);
+    *app.state::<LibraryState>().folders.lock().unwrap() = places;
+}
+
+/// Forgets the library built in memory: the next `library_get` reads the database again.
+pub fn invalidate(app: &AppHandle) {
+    let state = app.state::<LibraryState>();
+    state.generation.fetch_add(1, Ordering::SeqCst);
     *state.library.lock().unwrap() = None;
     state.cover_sources.lock().unwrap().clear();
     state.covers.lock().unwrap().clear();
-    Ok(folders.iter().map(|p| shown(p)).collect())
-}
-
-/// The folders the person added, as shown.
-#[tauri::command]
-pub fn library_folders(state: tauri::State<'_, LibraryState>) -> Vec<String> {
-    state.folders.lock().unwrap().iter().map(|p| shown(p)).collect()
-}
-
-/// Picks a folder in Windows' dialog and adds it; resolves to the new list (unchanged when cancelled).
-#[tauri::command]
-pub async fn library_add_folder(app: AppHandle, title: String) -> Result<Vec<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-    let picked = app.dialog().file().set_title(title).blocking_pick_folder();
-    let current = app.state::<LibraryState>().folders.lock().unwrap().clone();
-    let Some(folder) = picked.and_then(|f| f.into_path().ok()).and_then(|p| p.canonicalize().ok()) else {
-        return Ok(current.iter().map(|p| shown(p)).collect());
-    };
-    set_folders(&app, with_folder(&current, folder))
-}
-
-/// Stops reading a folder (its files are untouched); resolves to the new list.
-#[tauri::command]
-pub fn library_remove_folder(app: AppHandle, folder: String) -> Result<Vec<String>, String> {
-    let current = app.state::<LibraryState>().folders.lock().unwrap().clone();
-    set_folders(&app, current.into_iter().filter(|p| shown(p) != folder).collect())
 }
 
 /// First non-empty value of a field over the file's tags, primary first: an MP3 with only ID3v1 has an empty
@@ -231,35 +241,25 @@ pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
     Some((track, if album_artist.is_empty() { artist } else { album_artist }))
 }
 
-/// Reads a folder: the songs grouped into albums, the videos into movies and series, and for each album the files its cover may come from.
-pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
-    scan_all(&[root.to_path_buf()])
+/// A video as the pages group it: movie or episode, and for an episode the show's folder (above a season folder)
+/// or else its parsed title.
+pub struct VideoEntry {
+    pub video: LibVideo,
+    pub kind: Kind,
+    pub show_folder: Option<String>,
+    pub show_title: String,
 }
 
-/// Reads several folders into one library.
-pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
-    let started = std::time::Instant::now();
-    // Videos keep the folder they were found in: the parser reads their path below it (season folders).
-    let (mut audio, mut video) = (vec![], vec![]);
-    for root in roots {
-        for e in WalkDir::new(root).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
-            match formats::kind_of(e.path()) {
-                Some(MediaKind::Audio) => audio.push(e.path().to_path_buf()),
-                Some(MediaKind::Video) => video.push((root.clone(), e.path().to_path_buf())),
-                None => {}
-            }
-        }
-    }
-
-    // Albums: grouped by album artist (or artist) and album title; songs without an album share one group.
+/// Songs into albums (by album artist, or artist, and album title; songs without an album share one), videos into
+/// films and series (by the show's folder, or else by their title compared loosely, `parse::series_key`). Ids that
+/// are already set are kept (the database's); the others are numbered.
+pub fn assemble(roots: Vec<String>, audio: Vec<(LibTrack, String)>, mut videos: Vec<VideoEntry>) -> (Library, HashMap<String, Vec<PathBuf>>) {
+    settle_folders(&mut videos);
     let mut groups: BTreeMap<(String, String), Vec<LibTrack>> = BTreeMap::new();
-    for p in &audio {
-        if let Some((t, album_artist)) = read_track(p) {
-            groups.entry((album_artist.to_lowercase(), t.album.to_lowercase())).or_default().push(t);
-        }
+    for (t, album_artist) in audio {
+        groups.entry((album_artist.to_lowercase(), t.album.to_lowercase())).or_default().push(t);
     }
-    // Paths keep Windows' long-path prefix (long paths reach the engine intact, S4); the folders are shown without it.
-    let (mut lib, mut sources) = (Library { roots: roots.iter().map(|r| shown(r)).collect(), ..Default::default() }, HashMap::new());
+    let (mut lib, mut sources) = (Library { roots, ..Default::default() }, HashMap::new());
     for (i, ((_, _), mut tracks)) in groups.into_iter().enumerate() {
         tracks.sort_by(|a, b| (a.disc, a.number, &a.path).cmp(&(b.disc, b.number, &b.path)));
         let id = format!("a{i}");
@@ -268,15 +268,15 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
         let mut album = LibAlbum { id: id.clone(), title: first.album.clone(), artist, year: tracks.iter().find_map(|t| t.year), track_ids: vec![] };
         sources.insert(id.clone(), tracks.iter().map(|t| PathBuf::from(&t.path)).collect::<Vec<_>>());
         for (j, mut t) in tracks.into_iter().enumerate() {
-            t.id = format!("{id}t{j}");
+            if t.id.is_empty() {
+                t.id = format!("{id}t{j}");
+            }
             album.track_ids.push(t.id.clone());
             lib.tracks.push(t);
         }
         lib.albums.push(album);
     }
 
-    // Videos: the parser says movie or episode. Episodes group into series by the show's folder ("Show/Season 1/…")
-    // or else by their title, compared loosely (`parse::series_key`).
     #[derive(Default)]
     struct Show {
         folder: Option<String>,
@@ -284,27 +284,17 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
         episodes: Vec<LibVideo>,
     }
     let mut series: BTreeMap<String, Show> = BTreeMap::new();
-    for (i, (root, p)) in video.iter().enumerate() {
-        let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
-        let parsed = parse::parse(&rel);
-        let v = LibVideo {
-            id: format!("v{i}"),
-            title: parsed.title.clone(),
-            year: parsed.year,
-            season: parsed.season,
-            episode: parsed.episode,
-            episode_title: parsed.episode_title.clone(),
-            file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
-            path: p.to_string_lossy().to_string(),
-        };
-        match parsed.kind {
-            Kind::Movie => lib.movies.push(v),
+    for (i, mut e) in videos.into_iter().enumerate() {
+        if e.video.id.is_empty() {
+            e.video.id = format!("v{i}");
+        }
+        match e.kind {
+            Kind::Movie => lib.movies.push(e.video),
             Kind::Episode => {
-                let folder = parse::show_folder(&rel);
-                let show = series.entry(parse::series_key(folder.as_deref().unwrap_or(&parsed.title))).or_default();
-                show.folder = show.folder.take().or(folder);
-                show.titles.push(parsed.title);
-                show.episodes.push(v);
+                let show = series.entry(parse::series_key(e.show_folder.as_deref().unwrap_or(&e.show_title))).or_default();
+                show.folder = show.folder.take().or(e.show_folder);
+                show.titles.push(e.show_title);
+                show.episodes.push(e.video);
             }
         }
     }
@@ -315,10 +305,165 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
         for e in &mut show.episodes {
             e.title = title.clone();
         }
-        lib.series.push(LibSeries { id: format!("s{i}"), title, episodes: show.episodes });
+        let poster = show.episodes.iter().find_map(|e| e.poster.clone());
+        lib.series.push(LibSeries { id: format!("s{i}"), title, poster, episodes: show.episodes });
     }
+    (lib, sources)
+}
+
+/// Reads a folder: the songs grouped into albums, the videos into movies and series, and for each album the files its cover may come from.
+pub fn scan(root: &Path) -> (Library, HashMap<String, Vec<PathBuf>>) {
+    scan_all(&[root.to_path_buf()])
+}
+
+/// Reads several folders into one library, without the database (the web version's test library).
+pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
+    let started = std::time::Instant::now();
+    let (mut audio, mut video) = (vec![], vec![]);
+    for root in roots {
+        for e in WalkDir::new(root).into_iter().filter_map(|e| e.ok()).filter(|e| e.file_type().is_file()) {
+            match formats::kind_of(e.path()) {
+                Some(MediaKind::Audio) => audio.push(e.path().to_path_buf()),
+                Some(MediaKind::Video) => video.push((root.clone(), e.path().to_path_buf())),
+                None => {}
+            }
+        }
+    }
+    let tracks = audio.iter().filter_map(|p| read_track(p)).collect();
+    let videos = video
+        .iter()
+        .map(|(root, p)| {
+            let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+            let parsed = parse::parse(&rel);
+            let root_name = root.file_name().map(|n| n.to_string_lossy().into_owned());
+            VideoEntry {
+                video: LibVideo {
+                    title: parsed.title.clone(),
+                    year: parsed.year,
+                    season: parsed.season,
+                    episode: parsed.episode,
+                    episode_title: parsed.episode_title.clone(),
+                    file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
+                    path: p.to_string_lossy().to_string(),
+                    ..Default::default()
+                },
+                kind: parsed.kind,
+                show_folder: parse::show_folder_in(&rel, root_name.as_deref()),
+                show_title: parsed.title,
+            }
+        })
+        .collect();
+    // Paths keep Windows' long-path prefix (long paths reach the engine intact, S4); the folders are shown without it.
+    let (mut lib, sources) = assemble(roots.iter().map(|r| shown(r)).collect(), tracks, videos);
     lib.scan_ms = started.elapsed().as_millis() as u64;
     (lib, sources)
+}
+
+/// Reads the videos of each folder together, because a name alone can mislead:
+/// - a folder where most episodes are one show's is that show's: its other episodes join it when the folder is named
+///   after it or their name is close to it, and its "films" with the show's name or a running number are episodes;
+/// - a folder with no episodes whose films differ only by a running number ("Show 01", "Show 02", "Show 03") holds
+///   a show named without season marks.
+/// Sequels stay films: they carry a year, or a one-digit number and a film's length.
+fn settle_folders(videos: &mut [VideoEntry]) {
+    let key_of = |e: &VideoEntry| parse::series_key(e.show_folder.as_deref().unwrap_or(&e.show_title));
+    let related = |a: &str, b: &str| !a.is_empty() && !b.is_empty() && (a == b || a.starts_with(&format!("{b} ")) || b.starts_with(&format!("{a} ")));
+    let mut by_dir: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, e) in videos.iter().enumerate() {
+        let dir = Path::new(&e.video.path).parent().map(|p| p.to_string_lossy().to_lowercase()).unwrap_or_default();
+        by_dir.entry(dir).or_default().push(i);
+    }
+    for idx in by_dir.into_values() {
+        if idx.len() < 2 {
+            continue;
+        }
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for &i in &idx {
+            if videos[i].kind == Kind::Episode {
+                *counts.entry(key_of(&videos[i])).or_default() += 1;
+            }
+        }
+        let episodes: usize = counts.values().sum();
+        let top = counts.iter().filter(|(k, n)| !k.is_empty() && **n >= 2).max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0))).map(|(k, n)| (k.clone(), *n));
+        if let Some((top, n)) = top {
+            let lead = idx.iter().map(|&i| &videos[i]).find(|e| e.kind == Kind::Episode && key_of(e) == top).map(|e| (e.show_folder.clone(), e.show_title.clone()));
+            let Some((lead_folder, lead_title)) = lead else { continue };
+            let mut seasons: BTreeMap<u32, usize> = BTreeMap::new();
+            for &i in &idx {
+                if let (Kind::Episode, Some(s)) = (&videos[i].kind, videos[i].video.season) {
+                    *seasons.entry(s).or_default() += 1;
+                }
+            }
+            let season = seasons.into_iter().max_by_key(|(_, c)| *c).map(|(s, _)| s);
+            // The folder is the show's own, or one of its seasons', when its name says so
+            let folder_key = Path::new(&videos[idx[0]].video.path)
+                .ancestors()
+                .skip(1)
+                .filter_map(|a| a.file_name().map(|f| f.to_string_lossy().into_owned()))
+                .find_map(|name| match parse::season_of(&name) {
+                    Some((_, None)) => None,
+                    Some((_, Some(show))) => Some(show),
+                    None => Some(parse::folder_title(&name)),
+                })
+                .map(|t| parse::series_key(&t))
+                .unwrap_or_default();
+            let owns = related(&folder_key, &top) && n * 2 >= episodes;
+            for &i in &idx {
+                let key = key_of(&videos[i]);
+                let e = &mut videos[i];
+                match e.kind {
+                    Kind::Episode => {
+                        if key != top && (owns || related(&key, &top)) {
+                            e.show_folder = lead_folder.clone();
+                            e.show_title = lead_title.clone();
+                        }
+                    }
+                    Kind::Movie => {
+                        let number = parse::numbered(&e.video.title);
+                        let named = related(&key, &top) || number.as_ref().is_some_and(|(base, ..)| related(&parse::series_key(base), &top));
+                        // "Friends with Benefits (2011)" beside two episodes of Friends stays a film
+                        let a_film = e.video.year.is_some() && number.is_none() && !owns;
+                        if (named && !a_film) || (owns && number.is_some()) {
+                            if key != top && number.is_none() && e.video.episode_title.is_none() {
+                                e.video.episode_title = Some(e.video.title.clone());
+                            }
+                            e.kind = Kind::Episode;
+                            e.video.episode = number.map(|(_, n, _)| n);
+                            e.video.season = e.video.season.or(season);
+                            e.show_folder = lead_folder.clone();
+                            e.show_title = lead_title.clone();
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        let mut runs: BTreeMap<String, Vec<(usize, u32, bool)>> = BTreeMap::new();
+        for &i in &idx {
+            let e = &videos[i];
+            if e.kind == Kind::Movie && e.video.year.is_none() {
+                if let Some((base, n, padded)) = parse::numbered(&e.video.title) {
+                    runs.entry(parse::series_key(&base)).or_default().push((i, n, padded));
+                }
+            }
+        }
+        for (key, run) in runs {
+            let mut numbers: Vec<u32> = run.iter().map(|r| r.1).collect();
+            numbers.sort_unstable();
+            numbers.dedup();
+            let short = run.iter().all(|r| videos[r.0].video.duration.is_some_and(|d| d < 80.0 * 60.0));
+            if key.is_empty() || run.len() < 3 || numbers.len() != run.len() || !(run.iter().all(|r| r.2) || short) {
+                continue;
+            }
+            let Some((title, ..)) = parse::numbered(&videos[run[0].0].video.title) else { continue };
+            for (i, n, _) in run {
+                let e = &mut videos[i];
+                e.kind = Kind::Episode;
+                e.video.episode = Some(n);
+                e.show_title = title.clone();
+            }
+        }
+    }
 }
 
 /// The title most episodes use (the shortest of those that tie): "Mr. Robot" over a stray "Mr Robot Season 2".
@@ -330,19 +475,128 @@ fn most_common(titles: &[String]) -> String {
     counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(b.0.len().cmp(&a.0.len())).then(b.0.cmp(a.0))).map(|(t, _)| t.to_string()).unwrap_or_default()
 }
 
-/// The library, read on the first call after a start or a change of folders (about 0.2 s for `media_to_test`).
+fn file_name_of(path: &str) -> String {
+    Path::new(path).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// The library as the pages show it, from the database: files that are there (missing ones wait for Phase 5's
+/// "Can't find this file"), the person's corrections over the `.nfo` over the file name.
+pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, Vec<PathBuf>>)> {
+    let started = std::time::Instant::now();
+    let roots: Vec<String> = crate::import::places(conn).iter().map(|p| shown(&p.root)).collect();
+    let audio = conn
+        .prepare(
+            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem
+             FROM tracks t JOIN files f ON f.id = t.file_id WHERE f.missing = 0",
+        )?
+        .query_map([], |r| {
+            Ok((
+                LibTrack {
+                    id: format!("t{}", r.get::<_, i64>(0)?),
+                    path: r.get(1)?,
+                    title: r.get(2)?,
+                    artist: r.get(3)?,
+                    album: r.get(5)?,
+                    number: r.get(6)?,
+                    disc: r.get(7)?,
+                    year: r.get(8)?,
+                    duration: r.get::<_, i64>(9)? as f64 / 1000.0,
+                    unplayable: r.get::<_, Option<String>>(10)?.is_some(),
+                },
+                r.get::<_, String>(4)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let videos = conn
+        .prepare(
+            "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
+                    o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
+                    o.title, m.title, m.year, m.overview, m.genres, p.path
+             FROM videos v JOIN files f ON f.id = v.file_id
+             LEFT JOIN places p ON p.id = f.place_id
+             LEFT JOIN overrides o ON o.file_id = f.id
+             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)
+             WHERE f.missing = 0",
+        )?
+        .query_map([], |r| {
+            let path: String = r.get(1)?;
+            // The name is read again here, not taken from what the import wrote down: the parser's later fixes then
+            // reach files that are already in the library, with no rescan. The person's corrections still come first.
+            let place: Option<String> = r.get(19)?;
+            let rel = crate::import::rel_of(place.as_deref().map(Path::new), Path::new(&path));
+            let parsed = parse::parse(&rel);
+            let place_name = place.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
+            let kind = match r.get::<_, Option<String>>(2)?.as_deref() {
+                Some("movie") => Kind::Movie,
+                Some(_) => Kind::Episode,
+                None => parsed.kind.clone(),
+            };
+            let parsed_title = parsed.title.clone();
+            let (over_title, meta_title): (Option<String>, Option<String>) = (r.get(14)?, r.get(15)?);
+            // A film's `.nfo` names the film; an episode's names the episode (its show comes from the folder or name).
+            let (title, episode_title) = match kind {
+                Kind::Movie => (over_title.clone().or(meta_title).unwrap_or_else(|| parsed_title.clone()), parsed.episode_title.clone()),
+                Kind::Episode => (over_title.clone().unwrap_or_else(|| parsed_title.clone()), meta_title.or(parsed.episode_title.clone())),
+            };
+            let year = r.get::<_, Option<u16>>(4)?.or(parsed.year).or(if kind == Kind::Movie { r.get(16)? } else { None });
+            Ok(VideoEntry {
+                video: LibVideo {
+                    id: format!("v{}", r.get::<_, i64>(0)?),
+                    title,
+                    year,
+                    season: r.get::<_, Option<u32>>(5)?.or(parsed.season),
+                    episode: r.get::<_, Option<u32>>(6)?.or(parsed.episode),
+                    episode_title,
+                    file_name: file_name_of(&path),
+                    path,
+                    poster: r.get(9)?,
+                    backdrop: r.get(10)?,
+                    duration: r.get::<_, Option<i64>>(11)?.map(|d| d as f64 / 1000.0),
+                    width: r.get(12)?,
+                    height: r.get(13)?,
+                    overview: r.get(17)?,
+                    genres: r.get::<_, Option<String>>(18)?.map(|g| g.split(", ").map(String::from).collect()).unwrap_or_default(),
+                },
+                kind,
+                show_folder: parse::show_folder_in(&rel, place_name.as_deref()),
+                show_title: over_title.unwrap_or(parsed_title),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let (mut lib, sources) = assemble(roots, audio, videos);
+    lib.scan_ms = started.elapsed().as_millis() as u64;
+    Ok((lib, sources))
+}
+
+/// The library, read from the database on the first call after a start or a change (a few milliseconds for a
+/// test folder). The first call of a session also checks the places for changes, in the background: quietly,
+/// unless a place has never been read (then its row shows in the queue).
 #[tauri::command]
-pub async fn library_get(state: tauri::State<'_, LibraryState>) -> Result<Library, String> {
+pub async fn library_get(app: AppHandle) -> Result<Library, String> {
+    ensure_ready(&app)?;
+    let state = app.state::<LibraryState>();
+    let imports = app.state::<crate::import::ImportState>();
+    if !imports.rescanned.swap(true, Ordering::SeqCst) {
+        let never_read = app.state::<Db>().conn()?.query_row("SELECT count(*) FROM places WHERE last_scan_at IS NULL", [], |r| r.get::<_, i64>(0)).unwrap_or(0) > 0;
+        let _ = crate::import::rescan(&app, None, !never_read);
+    }
     if let Some(l) = state.library.lock().unwrap().clone() {
         return Ok(l);
     }
-    let roots = roots(&state);
-    if roots.is_empty() {
-        return Ok(Library::default());
+    let generation = state.generation.load(Ordering::SeqCst);
+    let app2 = app.clone();
+    let (lib, sources) = tauri::async_runtime::spawn_blocking(move || {
+        let db = app2.state::<Db>();
+        let conn = db.conn()?;
+        from_db(&conn).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    // The library changed while this was read: the page asks again for the new one, so this one is not kept.
+    if state.generation.load(Ordering::SeqCst) == generation {
+        *state.cover_sources.lock().unwrap() = sources;
+        *state.library.lock().unwrap() = Some(lib.clone());
     }
-    let (lib, sources) = tauri::async_runtime::spawn_blocking(move || scan_all(&roots)).await.map_err(|e| e.to_string())?;
-    *state.cover_sources.lock().unwrap() = sources;
-    *state.library.lock().unwrap() = Some(lib.clone());
     Ok(lib)
 }
 
@@ -378,30 +632,35 @@ pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: Stri
         return Ok(c.clone());
     }
     let files = state.cover_sources.lock().unwrap().get(&album_id).cloned().unwrap_or_default();
-    let url = tauri::async_runtime::spawn_blocking(move || {
+    let url = cover_url(files).await?;
+    state.covers.lock().unwrap().insert(album_id, url.clone());
+    Ok(url)
+}
+
+/// A cover as a small JPEG data URL, made off the window's thread.
+pub async fn cover_url(files: Vec<PathBuf>) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
         cover_thumbnail(&files).map(|jpg| format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpg)))
     })
     .await
-    .map_err(|e| e.to_string())?;
-    state.covers.lock().unwrap().insert(album_id, url.clone());
-    Ok(url)
+    .map_err(|e| e.to_string())
+}
+
+/// A poster or backdrop from the image cache (made once by the import), as a JPEG data URL.
+#[tauri::command]
+pub async fn library_image(app: AppHandle, hash: String) -> Result<Option<String>, String> {
+    if hash.len() != 32 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(None);
+    }
+    let file = app.path().app_data_dir().map_err(|e| e.to_string())?.join("images").join(format!("{hash}.jpg"));
+    tauri::async_runtime::spawn_blocking(move || std::fs::read(file).ok().map(|jpg| format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpg))))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn adding_a_folder_never_reads_a_file_twice() {
-        let (music, videos) = (PathBuf::from(r"C:\Users\a\Music"), PathBuf::from(r"C:\Users\a\Videos"));
-        let both = with_folder(&[music.clone()], videos.clone());
-        assert_eq!(both, vec![music.clone(), videos.clone()]);
-        // Again, or a folder inside one already read: nothing changes.
-        assert_eq!(with_folder(&both, videos.clone()), both);
-        assert_eq!(with_folder(&both, music.join("Albums")), both);
-        // A folder above both takes their place.
-        assert_eq!(with_folder(&both, PathBuf::from(r"C:\Users\a")), vec![PathBuf::from(r"C:\Users\a")]);
-    }
 
     #[test]
     fn episodes_of_one_show_make_one_series_whatever_their_names() {
@@ -434,7 +693,156 @@ mod tests {
     }
 
     #[test]
+    fn the_database_gives_the_pages_the_same_shapes_with_the_nfo_over_the_name() {
+        let conn = crate::db::memory();
+        conn.execute_batch(
+            "INSERT INTO places(id, path, created_at) VALUES (1, 'D:\\Media', 1);
+             INSERT INTO files(id, place_id, path, size, mtime, kind, added_at, scanned_at) VALUES
+               (1, 1, 'D:\\Media\\Films\\heat.1995.mkv', 1, 1, 'video', 1, 1),
+               (2, 1, 'D:\\Media\\Dark\\Season 1\\Dark.S01E01.mkv', 1, 1, 'video', 1, 1),
+               (3, 1, 'D:\\Media\\Album\\01.mp3', 1, 1, 'audio', 1, 1),
+               (4, 1, 'D:\\Media\\Gone.mkv', 1, 1, 'video', 1, 1);
+             UPDATE files SET missing = 1 WHERE id = 4;
+             INSERT INTO videos(file_id, kind, title, year, season, episode, show_folder, duration_ms, height, poster) VALUES
+               (1, 'movie', 'heat', 1995, NULL, NULL, NULL, 6000000, 1080, 'aa'),
+               (2, 'episode', 'Dark', NULL, 1, 1, 'Dark', 3000000, 1080, NULL),
+               (4, 'movie', 'Gone', NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO metadata(file_id, source, title, overview, genres, fetched_at) VALUES
+               (1, 'nfo', 'Heat', 'A thief.', 'Crime, Drama', 1),
+               (2, 'nfo', 'Secrets', NULL, NULL, 1);
+             INSERT INTO tracks(file_id, title, artist, album_artist, album, track_no, duration_ms) VALUES (3, 'Song', 'A', 'A', 'Album', 1, 200000);",
+        )
+        .unwrap();
+        let (lib, sources) = from_db(&conn).unwrap();
+        assert_eq!(lib.roots, vec![r"D:\Media"]);
+        assert_eq!(lib.movies.len(), 1, "a missing file is left out");
+        let heat = &lib.movies[0];
+        assert_eq!((heat.title.as_str(), heat.overview.as_deref(), heat.genres.len(), heat.duration), ("Heat", Some("A thief."), 2, Some(6000.0)));
+        assert_eq!(heat.id, "v1");
+        assert_eq!(lib.series[0].title, "Dark");
+        assert_eq!(lib.series[0].episodes[0].episode_title.as_deref(), Some("Secrets"));
+        assert_eq!((lib.albums.len(), lib.tracks[0].id.as_str(), lib.tracks[0].duration), (1, "t3", 200.0));
+        assert_eq!(sources[&lib.albums[0].id].len(), 1);
+    }
+
+    #[test]
     fn shows_folders_without_the_long_path_prefix() {
         assert_eq!(shown(Path::new(r"\\?\D:\Media\Films")), r"D:\Media\Films");
+    }
+
+    /// A library folder with these files, read without the database.
+    fn scanned(name: &str, files: &[&str]) -> Library {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!("pmp-{}-{n}", std::process::id())).join(name);
+        for f in files {
+            let p = root.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"").unwrap();
+        }
+        let (lib, _) = scan(&root);
+        std::fs::remove_dir_all(root.parent().unwrap()).ok();
+        lib
+    }
+    fn shows(lib: &Library) -> Vec<(String, usize)> {
+        lib.series.iter().map(|s| (s.title.clone(), s.episodes.len())).collect()
+    }
+
+    #[test]
+    fn a_show_s_folder_holds_one_series_however_its_files_are_named() {
+        let lib = scanned(
+            "Series",
+            &[
+                "The Big Bang Theory/The.Big.Bang.Theory.S01E01.720p.mkv",
+                "The Big Bang Theory/The Big Bang Theory - S01E02 - The Big Bran Hypothesis.mkv",
+                "The Big Bang Theory/TBBT.S01E03.mkv",
+                "The Big Bang Theory/Big Bang Theory 1x04.avi",
+            ],
+        );
+        assert_eq!(shows(&lib), vec![("The Big Bang Theory".to_string(), 4)]);
+        assert!(lib.movies.is_empty());
+    }
+
+    #[test]
+    fn seasons_in_folders_of_their_own_make_one_series() {
+        let lib = scanned(
+            "Series",
+            &[
+                "Dark S01/Dark.S01E01.mkv",
+                "Dark S01/Dark.S01E02.mkv",
+                "Dark.S02.1080p.BluRay.x264/Dark.S02E01.GERMAN.mkv",
+                "Dark Season 3/01 - Deja-vu.mkv",
+                "Mr. Robot/Temporada 1/Capitulo 1.mkv",
+                "Mr. Robot/T2/Mr.Robot.S02E01.mkv",
+            ],
+        );
+        assert_eq!(shows(&lib), vec![("Dark".to_string(), 4), ("Mr. Robot".to_string(), 2)]);
+        assert_eq!(lib.series[0].episodes.iter().map(|e| e.season).collect::<Vec<_>>(), vec![Some(1), Some(1), Some(2), Some(3)]);
+    }
+
+    #[test]
+    fn a_show_added_as_a_library_folder_is_one_series_named_after_it() {
+        let lib = scanned("Dark (2017)", &["Season 1/01.mkv", "Season 1/02.mkv", "Season 2/01.mkv", "Specials/Making of.mkv"]);
+        assert_eq!(shows(&lib), vec![("Dark".to_string(), 4)]);
+        assert!(lib.movies.is_empty());
+    }
+
+    #[test]
+    fn episodes_without_season_marks_join_their_show_and_leave_the_films() {
+        let lib = scanned(
+            "Video",
+            &[
+                // beside marked episodes: the unmarked one is theirs
+                "Anime/Frieren/[Group] Frieren - 01 [1080p].mkv",
+                "Anime/Frieren/[Group] Frieren - 02 [1080p].mkv",
+                "Anime/Frieren/Frieren 03.mkv",
+                "Anime/Frieren/Frieren - Creditless Opening.mkv",
+                // a folder of numbered files only
+                "Anime/Cowboy Bebop/Cowboy Bebop 01.mkv",
+                "Anime/Cowboy Bebop/Cowboy Bebop 02.mkv",
+                "Anime/Cowboy Bebop/Cowboy Bebop 03.mkv",
+                // films stay films: sequels, and a film that only shares a word with a show beside it
+                "Films/Rocky 2.mkv",
+                "Films/Rocky 3.mkv",
+                "Films/Rocky 4.mkv",
+                "Mixed/Friends.S01E01.mkv",
+                "Mixed/Friends.S01E02.mkv",
+                "Mixed/Friends with Benefits (2011).mkv",
+            ],
+        );
+        assert_eq!(shows(&lib), vec![("Cowboy Bebop".to_string(), 3), ("Friends".to_string(), 2), ("Frieren".to_string(), 4)]);
+        let frieren = &lib.series[2];
+        assert_eq!(frieren.episodes.iter().filter_map(|e| e.episode).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert!(frieren.episodes.iter().any(|e| e.episode_title.as_deref() == Some("Frieren - Creditless Opening")));
+        let films: Vec<_> = lib.movies.iter().map(|m| m.title.as_str()).collect();
+        assert_eq!(films, vec!["Friends with Benefits", "Rocky 2", "Rocky 3", "Rocky 4"]);
+    }
+
+    #[test]
+    fn what_is_already_imported_is_read_again_with_the_person_s_corrections_first() {
+        let conn = crate::db::memory();
+        // As an earlier version imported them: the unmarked episode as a film, the seasons as two shows
+        conn.execute_batch(
+            "INSERT INTO places(id, path, created_at) VALUES (1, 'D:\\Media', 1);
+             INSERT INTO files(id, place_id, path, size, mtime, kind, added_at, scanned_at) VALUES
+               (1, 1, 'D:\\Media\\Frieren\\Frieren - 01.mkv', 1, 1, 'video', 1, 1),
+               (2, 1, 'D:\\Media\\Frieren\\Frieren - 02.mkv', 1, 1, 'video', 1, 1),
+               (3, 1, 'D:\\Media\\Frieren\\Frieren 03.mkv', 1, 1, 'video', 1, 1),
+               (4, 1, 'D:\\Media\\Dark S01\\Dark.S01E01.mkv', 1, 1, 'video', 1, 1),
+               (5, 1, 'D:\\Media\\Dark Season 2\\01.mkv', 1, 1, 'video', 1, 1),
+               (6, 1, 'D:\\Media\\Shorts\\Pilot.S01E01.mkv', 1, 1, 'video', 1, 1);
+             INSERT INTO videos(file_id, kind, title, year, season, episode, show_folder) VALUES
+               (1, 'episode', 'Frieren', NULL, NULL, 1, NULL),
+               (2, 'episode', 'Frieren', NULL, NULL, 2, NULL),
+               (3, 'movie', 'Frieren 03', NULL, NULL, NULL, NULL),
+               (4, 'episode', 'Dark', NULL, 1, 1, NULL),
+               (5, 'movie', '01', NULL, NULL, NULL, NULL),
+               (6, 'episode', 'Pilot', NULL, 1, 1, NULL);
+             INSERT INTO overrides(file_id, kind, title) VALUES (6, 'movie', 'Pilot, the short film');",
+        )
+        .unwrap();
+        let (lib, _) = from_db(&conn).unwrap();
+        assert_eq!(shows(&lib), vec![("Dark".to_string(), 2), ("Frieren".to_string(), 3)]);
+        assert_eq!(lib.movies.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(), vec!["Pilot, the short film"]);
     }
 }

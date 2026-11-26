@@ -1,11 +1,12 @@
-import { AppearancePanel, EmptyState, IconPalette, IconSettings, IconUser, type AccountView } from '@pastel-studio/react';
+import { AppearancePanel, EmptyState, IconInfo, IconPalette, IconSettings, IconUser, type AccountView } from '@pastel-studio/react';
 import { strings } from '../strings';
 import { themeStore, type useAppearance } from '../theme';
+import { AboutView } from './AboutView';
 import { SettingsView } from './SettingsView';
 
 type Appearance = ReturnType<typeof useAppearance>;
 
-/** The account menu's views: Profile, Appearance (the shared one) and Settings. */
+/** The account menu's views: Profile, Appearance (the shared one), Settings and About. */
 export function accountViews({ mode, setMode, accent, setAccent }: Appearance): AccountView[] {
   return [
     {
@@ -34,6 +35,12 @@ export function accountViews({ mode, setMode, accent, setAccent }: Appearance): 
       label: strings.account.settings,
       icon: <IconSettings />,
       render: () => <SettingsView />,
+    },
+    {
+      key: 'about',
+      label: strings.account.about,
+      icon: <IconInfo />,
+      render: () => <AboutView />,
     },
   ];
 }

@@ -50,7 +50,7 @@ const BOUNDARY_PATTERNS = [
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/src-tauri/**', 'documentation/**', 'corpus/**', 'media_to_test/**']
+    ignores: ['**/dist/**', '**/node_modules/**', '**/src-tauri/**', 'documentation/**', 'corpus/**', 'media_to_test/**', 'tools/figma-screens/**']
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

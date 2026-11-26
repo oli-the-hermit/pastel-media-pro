@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(windows)]
@@ -18,7 +18,26 @@ mod mpv {
         set_prop: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int,
         get_prop: unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_char,
         free: unsafe extern "C" fn(*mut c_void),
+        wait_event: unsafe extern "C" fn(*mut c_void, f64) -> *const Event,
+        error_string: unsafe extern "C" fn(c_int) -> *const c_char,
     }
+
+    /// `mpv_event` and the start of `mpv_event_end_file`, from client.h (checked against the shipped header).
+    #[repr(C)]
+    pub struct Event {
+        event_id: c_int,
+        error: c_int,
+        reply_userdata: u64,
+        data: *mut c_void,
+    }
+    #[repr(C)]
+    struct EndFile {
+        reason: c_int,
+        error: c_int,
+    }
+    const EVENT_SHUTDOWN: c_int = 1;
+    const EVENT_END_FILE: c_int = 7;
+    const END_FILE_REASON_ERROR: c_int = 4;
     // The handle is only used behind the engine's mutex; libmpv's client API is thread-safe.
     unsafe impl Send for Mpv {}
 
@@ -34,6 +53,8 @@ mod mpv {
                 let set_prop = *lib.get(b"mpv_set_property_string\0").map_err(|e| e.to_string())?;
                 let get_prop = *lib.get(b"mpv_get_property_string\0").map_err(|e| e.to_string())?;
                 let free = *lib.get(b"mpv_free\0").map_err(|e| e.to_string())?;
+                let wait_event = *lib.get(b"mpv_wait_event\0").map_err(|e| e.to_string())?;
+                let error_string = *lib.get(b"mpv_error_string\0").map_err(|e| e.to_string())?;
                 let h = create();
                 if h.is_null() {
                     return Err("mpv_create failed".into());
@@ -77,8 +98,28 @@ mod mpv {
                 if rc < 0 {
                     return Err(format!("mpv_initialize failed: {rc}"));
                 }
-                Ok(Mpv { _lib: lib, h, command, set_prop, get_prop, free })
+                Ok(Mpv { _lib: lib, h, command, set_prop, get_prop, free, wait_event, error_string })
             }
+        }
+
+        /// Reads mpv's events on a thread of its own (the only reader, as mpv requires) and reports each file that
+        /// ended in an error, with mpv's reason ("unrecognized file format", "loading failed"…). The handle outlives
+        /// the thread: the engine is never destroyed while the app runs.
+        pub fn watch_errors(&self, on_error: impl Fn(String) + Send + 'static) {
+            let (h, wait, describe) = (self.h as usize, self.wait_event, self.error_string);
+            std::thread::spawn(move || loop {
+                let e = unsafe { &*wait(h as *mut c_void, -1.0) };
+                match e.event_id {
+                    EVENT_SHUTDOWN => break,
+                    EVENT_END_FILE if !e.data.is_null() => {
+                        let end = unsafe { &*(e.data as *const EndFile) };
+                        if end.reason == END_FILE_REASON_ERROR {
+                            on_error(unsafe { CStr::from_ptr(describe(end.error)) }.to_string_lossy().into_owned());
+                        }
+                    }
+                    _ => {}
+                }
+            });
         }
 
         pub fn cmd(&self, args: &[&str]) -> c_int {
@@ -133,6 +174,23 @@ pub struct Engine {
     #[cfg(not(windows))]
     mpv: Mutex<Option<()>>,
     error: Mutex<Option<String>>,
+    /// The file the page asked for last, and the last file that failed to open (it arrives as mpv's event).
+    last_path: Arc<Mutex<String>>,
+    load_error: Arc<Mutex<Option<LoadError>>>,
+}
+
+/// A file mpv could not open: a number that grows with each failure (the page shows each one once), the file, and
+/// mpv's reason.
+#[derive(Clone, serde::Serialize)]
+pub struct LoadError {
+    pub seq: u64,
+    pub path: String,
+    pub reason: String,
+}
+
+/// The next failure after `previous`.
+pub fn next_load_error(previous: Option<&LoadError>, path: String, reason: String) -> LoadError {
+    LoadError { seq: previous.map_or(1, |e| e.seq + 1), path, reason }
 }
 
 /// Where libmpv may be: an override, beside the app (installed, with the DLL as a resource), or the repo's `lib/` in a dev build.
@@ -164,7 +222,13 @@ fn ensure(app: &AppHandle, engine: &Engine) -> Result<(), String> {
     let dll = dll_candidates(app).into_iter().find(|p| p.is_file()).ok_or("libmpv-2.dll was not found")?;
     let win = app.get_webview_window("main").ok_or("no main window")?;
     let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as isize;
-    *slot = Some(mpv::Mpv::new(&dll, hwnd)?);
+    let mpv = mpv::Mpv::new(&dll, hwnd)?;
+    let (last, failed) = (engine.last_path.clone(), engine.load_error.clone());
+    mpv.watch_errors(move |reason| {
+        let mut slot = failed.lock().unwrap();
+        *slot = Some(next_load_error(slot.as_ref(), last.lock().unwrap().clone(), reason));
+    });
+    *slot = Some(mpv);
     Ok(())
 }
 
@@ -186,17 +250,16 @@ pub fn start(app: &AppHandle) {
 
 // The commands are async, so they run off the window's thread: mpv's embedded window needs that thread free.
 
-/// Plays a file. Only files the system handed the app (`open::is_allowed`) or inside the library's folders
+/// Plays a file. Only files the system handed the app (`open::is_allowed`) or in the library
 /// (`library::allowed`) may be opened: the page can't name any other path.
 #[tauri::command]
 pub async fn engine_load(
     app: AppHandle,
     engine: State<'_, Engine>,
     opened: State<'_, crate::open::OpenState>,
-    library: State<'_, crate::library::LibraryState>,
     path: String,
 ) -> Result<(), String> {
-    if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&library, &path) {
+    if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&app, &path) {
         return Err("this file is outside the library".into());
     }
     #[cfg(windows)]
@@ -204,6 +267,7 @@ pub async fn engine_load(
         if let Some(e) = engine.error.lock().unwrap().clone() {
             return Err(e);
         }
+        *engine.last_path.lock().unwrap() = path.clone();
         let rc = engine.mpv.lock().unwrap().as_ref().map_or(-1, |m| {
             m.set("pause", "no");
             m.cmd(&["loadfile", &path])
@@ -261,23 +325,27 @@ pub async fn engine_set(engine: State<'_, Engine>, name: String, value: String) 
 #[tauri::command]
 pub async fn engine_status(engine: State<'_, Engine>) -> Result<Value, String> {
     let error = engine.error.lock().unwrap().clone();
+    let load_error = engine.load_error.lock().unwrap().clone();
     #[cfg(windows)]
     {
         let guard = engine.mpv.lock().unwrap();
         let Some(m) = guard.as_ref() else { return Ok(json!({ "ready": false, "error": error })) };
         let g = |k: &str| m.get(k).unwrap_or_default();
         Ok(json!({
-            "ready": true, "error": error,
+            "ready": true, "error": error, "loadError": load_error,
             "path": g("path"), "pos": g("time-pos"), "dur": g("duration"), "pause": g("pause"),
             "volume": g("volume"), "mute": g("mute"), "speed": g("speed"), "eof": g("eof-reached"),
             "idle": g("idle-active"), "buffering": g("paused-for-cache"), "video": g("vid"),
             // Diagnostics: frames really drawn, by which output, at what size.
             "fps": g("estimated-vf-fps"), "vo": g("current-vo"), "hwdec": g("hwdec-current"),
             "width": g("width"), "height": g("height"), "osdWidth": g("osd-width"), "osdHeight": g("osd-height"),
+            // The picture as it is shown (aspect and rotation applied), and whether its window is up with a frame in it.
+            "dwidth": g("dwidth"), "dheight": g("dheight"), "voReady": g("vo-configured"), "frame": g("estimated-frame-number"),
         }))
     }
     #[cfg(not(windows))]
     {
+        let _ = load_error;
         Ok(json!({ "ready": false, "error": error }))
     }
 }

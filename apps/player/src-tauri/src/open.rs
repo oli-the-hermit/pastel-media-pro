@@ -110,6 +110,7 @@ fn describe(path: &Path, id: String) -> Option<Opened> {
                 episode_title: parsed.episode_title,
                 file_name: name,
                 path: shown,
+                ..Default::default()
             }))
         }
     }
@@ -185,6 +186,16 @@ pub fn open_launched(state: tauri::State<'_, OpenState>) -> bool {
 #[tauri::command]
 pub fn open_take(state: tauri::State<'_, OpenState>) -> Vec<Opened> {
     std::mem::take(&mut state.inner.lock().unwrap().pending)
+}
+
+/// An opened song's cover (its embedded picture, or a cover image beside it) as a small JPEG data URL, or nothing.
+/// Only for files the system handed the app: songs in the library get theirs by album.
+#[tauri::command]
+pub async fn open_cover(app: AppHandle, path: String) -> Result<Option<String>, String> {
+    if !is_allowed(&app.state::<OpenState>(), &path) {
+        return Ok(None);
+    }
+    library::cover_url(vec![PathBuf::from(path)]).await
 }
 
 /// The Open dialog: the files picked, allowed and described; empty when cancelled.

@@ -38,10 +38,18 @@ re!(ONLY_NUMBER, r"^(\d{1,3})$");
 re!(GROUP_PREFIX, r"^\[([^\]]+)\]\s*");
 re!(TRAILING_HASH, r"\s*\[[0-9A-Fa-f]{8}\]\s*$");
 re!(BRACKETED, r"\[[^\]]*\]|\([^)]*\)");
-re!(SEASON_FOLDER, r"(?i)^(?:Season|Series|Staffel|Temporada)[ ._-]*(\d{1,2})\b|^S(\d{1,2})$");
+re!(SEASON_FOLDER, r"(?i)^(?:Season|Series|Staffel|Temporada|Saison|Stagione|Temp\.?)[ ._-]*(\d{1,2})\b|^[ST](\d{1,2})$");
+// A season's folder that also names its show: "Show S01", "Show - Season 2", "Show.S01.1080p.BluRay" (not "Show.S01E02…")
+re!(SEASON_SUFFIX, r"(?i)^(.+?)[ ._-]+(?:S(\d{1,2})|(?:Season|Staffel|Temporada|Saison|Stagione)[ ._-]*(\d{1,2}))(?:$|[ ._\-\[(].*$)");
+re!(SPECIALS_FOLDER, r"(?i)^(?:Specials?|Especiales|OVAs?|OADs?)$");
+// "Show E05", and inside a season folder or beside other episodes "Show 05"
+re!(E_NUMBER, r"(?i)^(.*?)[ ._-]+E(\d{2,3})\b");
+re!(TRAILING_NUMBER, r"^(.*\D)[ ._-]+(\d{1,3})$");
+re!(PAREN_YEAR, r"\(\s*(?:19|20)\d{2}\s*\)");
+re!(GENERIC_NUMBERED, r"^(?:vid|img|mov|clip|screen ?recording|recording|video)[ _-]?\d");
 // Words in release names after an episode number that are not its title: languages and streaming sources.
 re!(RELEASE_WORDS, r"(?i)\b(?:GERMAN|FRENCH|SPANISH|ITALIAN|LATINO|CASTELLANO|ESP|ENG|VOSE|SUBBED|DUBBED|DL|NF|AMZN|HMAX|DSNP|ATVP|iNTERNAL)\b");
-re!(TRAILING_SEASON, r"(?i)\s+(?:season|series|temporada|staffel)\s*\d{1,2}$|\s+s\d{1,2}$");
+re!(TRAILING_SEASON, r"(?i)\s+(?:season|series|temporada|staffel|saison|stagione)\s*\d{1,2}$|\s+s\d{1,2}$|\s+\d(?:st|nd|rd|th)\s+season$|\s+part\s+\d{1,2}$|\s+(?:ii|iii|iv|vi|vii|viii)$");
 re!(
     NOISE,
     r"(?i)\b(?:2160p|1080p|1080i|720p|576p|480p|4K|UHD|BluRay|BDRip|BRRip|BD|DVDRip|R2DVD|DVD|WEB-?DL|WEBRip|WEB|HDTV|HDRip|REMUX|REPACK|PROPER|EXTENDED|UNRATED|x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC\d?(?:\.\d)?|AC-?3|DTS(?:-HD)?|FLAC\d?(?:\.\d)?|DD\d(?:\.\d)?|5\.1|7\.1|10bit|Hi10p?|Hi10|35mm|Dual[ ._-]?Audio|Multi|YTS(?:\.\w+)?|YIFY|RARBG|Scan)\b"
@@ -52,9 +60,35 @@ fn is_generic(title: &str) -> bool {
     t.is_empty()
         || t.len() <= 1
         || ["video", "movie", "film", "episode", "recording", "untitled", "new folder"].contains(&t.as_str())
-        || Regex::new(r"^(?:vid|img|mov|clip|screen ?recording|recording|video)[ _-]?\d")
-            .unwrap()
-            .is_match(&t)
+        || GENERIC_NUMBERED.is_match(&t)
+}
+
+/// A folder that holds one season: its number, and the show's name when the folder carries it too
+/// ("Season 2", "Temporada 1", "S03", "T1", "Specials"; "Show S01", "Show.S02.1080p.BluRay").
+pub fn season_of(folder: &str) -> Option<(u32, Option<String>)> {
+    if let Some(n) = SEASON_FOLDER.captures(folder).and_then(|c| c.get(1).or(c.get(2))).and_then(|m| m.as_str().parse().ok()) {
+        return Some((n, None));
+    }
+    if SPECIALS_FOLDER.is_match(folder.trim()) {
+        return Some((0, None));
+    }
+    let c = SEASON_SUFFIX.captures(folder)?;
+    let n = c.get(2).or(c.get(3))?.as_str().parse().ok()?;
+    let show = parse_movie(&c[1]).title;
+    (!is_generic(&show)).then_some((n, Some(show)))
+}
+
+/// A folder's name read as a title: "Mr. Robot (2015) [1080p]" is "Mr. Robot".
+pub fn folder_title(folder: &str) -> String {
+    parse_movie(folder).title
+}
+
+/// A title that ends in a running number, as a show's files named without season marks do ("Show 03"):
+/// what comes before it, the number, and whether it is written with two digits or more.
+pub fn numbered(title: &str) -> Option<(String, u32, bool)> {
+    let c = TRAILING_NUMBER.captures(title.trim())?;
+    let base = clean_title(&c[1]);
+    (!is_generic(&base)).then_some((base, c[2].parse().ok()?, c[2].len() >= 2))
 }
 
 /// Dots and underscores as spaces, when the name uses them as separators.
@@ -131,17 +165,28 @@ fn parse_stem(stem: &str, season_hint: Option<u32>) -> Option<Parsed> {
         let title = c[1].to_string();
         let n: u32 = c[2].parse().ok()?;
         let year_like = c[2].len() == 4 && (1900..=2027).contains(&n); // "Movie - 2010" is a year, "One Piece - 1071" an episode
-        if !year_like && (year_spans(&title).is_empty() || GROUP_PREFIX.is_match(stem)) {
+        // A year in brackets is the show's own ("Show (2015) - 05"); a bare one makes it a film's name
+        if !year_like && (year_spans(&PAREN_YEAR.replace_all(&title, " ")).is_empty() || GROUP_PREFIX.is_match(stem)) {
             return Some(mk(&title, season_hint, n, ""));
         }
     }
     if let Some(c) = EP_WORD.captures(&s) {
         return Some(mk(&c[1], season_hint, c[2].parse().ok()?, &s[c.get(0)?.end()..]));
     }
+    if let Some(c) = E_NUMBER.captures(&s) {
+        return Some(mk(&c[1], season_hint, c[2].parse().ok()?, &s[c.get(0)?.end()..]));
+    }
     // A file inside a season folder: "03 - Title" or "03". The show is the folder's; the episode's own title is not kept.
     if season_hint.is_some() {
         if let Some(c) = ONLY_NUMBER.captures(&s).or_else(|| LEADING_NUMBER.captures(&s)) {
             return Some(mk("", season_hint, c[1].parse().ok()?, c.get(2).map_or("", |m| m.as_str())));
+        }
+        // "Show 05", "Show.105": the number at the end, with the season in front of it when it has three digits
+        let cleaned = clean_title(&s);
+        if let Some(c) = TRAILING_NUMBER.captures(&cleaned) {
+            let n: u32 = c[2].parse().ok()?;
+            let ep = if c[2].len() == 3 && season_hint == Some(n / 100) { n % 100 } else { n };
+            return Some(mk(&c[1], season_hint, ep, ""));
         }
     }
     None
@@ -181,21 +226,39 @@ pub fn parse(rel: &str) -> Parsed {
     let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
     let folders = &parts[..parts.len().saturating_sub(1)];
 
-    let season_hint = folders.iter().rev().take(2).find_map(|f| {
-        SEASON_FOLDER
-            .captures(f)
-            .and_then(|c| c.get(1).or(c.get(2)))
-            .and_then(|m| m.as_str().parse().ok())
-    });
+    let season_hint = folders.iter().rev().take(2).find_map(|f| season_of(f)).map(|(n, _)| n);
+    // The show, from the folders: the one above the season folder, or the season folder's own name when it
+    // carries the show ("Show S02/03.mkv")
+    let show_from_folders = || {
+        folders
+            .iter()
+            .rev()
+            .find_map(|f| match season_of(f) {
+                Some((_, None)) => None,
+                Some((_, Some(show))) => Some(show),
+                None => Some(parse_movie(f).title),
+            })
+            .unwrap_or_default()
+    };
 
     if let Some(mut p) = parse_stem(stem, season_hint) {
         if is_generic(&p.title) {
-            // "Season 2/Episode 03.mkv": the show is the folder above the season folder
-            let show = folders.iter().rev().find(|f| !SEASON_FOLDER.is_match(f)).copied().unwrap_or("");
-            let sp = parse_movie(show);
-            p.title = sp.title;
+            // "Season 2/Episode 03.mkv": the show is the folder's
+            p.title = show_from_folders();
         }
         return p;
+    }
+    // Inside a season's folder, a file with no number is still the show's: a special, an extra ("Specials/Making of.mkv")
+    if let Some(season) = season_hint {
+        let own = parse_movie(stem).title;
+        return Parsed {
+            kind: Kind::Episode,
+            title: show_from_folders(),
+            year: None,
+            season: Some(season),
+            episode: None,
+            episode_title: (!own.is_empty()).then_some(own),
+        };
     }
     let mut p = parse_movie(stem);
     if is_generic(&p.title) {
@@ -219,23 +282,57 @@ pub fn parse(rel: &str) -> Parsed {
 
 /// The show an episode belongs to, from its folders: the folder above its season folder ("Show/Season 1/…").
 pub fn show_folder(rel: &str) -> Option<String> {
+    show_folder_in(rel, None)
+}
+
+/// The same, knowing the library folder's own name: a show added as a library folder has its seasons at the top
+/// ("Season 1/…" inside "…/Dark"), and is named by that folder. A season folder that names its show ("Dark S01")
+/// needs no folder above it.
+pub fn show_folder_in(rel: &str, library_folder: Option<&str>) -> Option<String> {
     let parts: Vec<&str> = rel.split('/').collect();
     let folders = &parts[..parts.len().saturating_sub(1)];
-    let i = folders.iter().rposition(|f| SEASON_FOLDER.is_match(f))?;
-    let show = parse_movie(folders.get(i.checked_sub(1)?)?);
-    (!is_generic(&show.title)).then_some(show.title)
+    let i = folders.iter().rposition(|f| season_of(f).is_some())?;
+    if let Some((_, Some(show))) = season_of(folders[i]) {
+        return Some(show);
+    }
+    let above = match i.checked_sub(1) {
+        Some(j) => folders[j],
+        None => library_folder?,
+    };
+    // Seasons inside seasons' folders ("Show S01-S03/Season 1"): the outer one names the show
+    let show = season_of(above).and_then(|(_, s)| s).unwrap_or_else(|| parse_movie(above).title);
+    (!is_generic(&show)).then_some(show)
 }
 
 /// What episodes of one show have in common however their files are named: lower case, letters and digits only,
 /// without a trailing year or season ("Mr.Robot", "Mr. Robot (2015)" and "Mr Robot Season 2" are one show).
 pub fn series_key(title: &str) -> String {
-    let t: String = title.to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
-    let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
-    let t = TRAILING_SEASON.replace(&t, "").to_string();
-    match t.rsplit_once(' ') {
-        Some((head, last)) if last.len() == 4 && (last.starts_with("19") || last.starts_with("20")) && last.chars().all(|c| c.is_ascii_digit()) => head.to_string(),
-        _ => t,
+    let unaccented = |c: char| match c {
+        'á' | 'à' | 'ä' | 'â' | 'ã' | 'å' => 'a',
+        'é' | 'è' | 'ë' | 'ê' => 'e',
+        'í' | 'ì' | 'ï' | 'î' => 'i',
+        'ó' | 'ò' | 'ö' | 'ô' | 'õ' => 'o',
+        'ú' | 'ù' | 'ü' | 'û' => 'u',
+        'ñ' => 'n',
+        'ç' => 'c',
+        c => c,
+    };
+    // "Pokémon" and "Pokemon", "Law & Order" and "Law and Order" are one show
+    let t: String = title.to_lowercase().replace('&', " and ").chars().map(unaccented).map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    let is_year = |w: &str| w.len() == 4 && (w.starts_with("19") || w.starts_with("20")) && w.chars().all(|c| c.is_ascii_digit());
+    let words: Vec<&str> = t.split_whitespace().collect();
+    // A year is not part of the name, wherever it stands, unless it is all there is ("1923")
+    let named: Vec<&str> = words.iter().copied().filter(|w| !is_year(w)).collect();
+    let mut t = if named.is_empty() { words.join(" ") } else { named.join(" ") };
+    // "Show Season 2", "Show S02", "Show 2nd Season", "Show Part 2", "Show II": the show without its season
+    for _ in 0..2 {
+        let cut = TRAILING_SEASON.replace(&t, "").to_string();
+        if cut.is_empty() || cut == t {
+            break;
+        }
+        t = cut;
     }
+    t
 }
 
 #[cfg(test)]
@@ -431,5 +528,68 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "misread:\n{}", wrong.join("\n"));
+    }
+
+    #[test]
+    fn knows_a_season_s_folder_however_it_is_named() {
+        let plain = |f: &str, n: u32| assert_eq!(season_of(f), Some((n, None)), "{f}");
+        plain("Season 2", 2);
+        plain("Temporada 1", 1);
+        plain("Saison 4", 4);
+        plain("Temp. 3", 3);
+        plain("S03", 3);
+        plain("T1", 1);
+        plain("Specials", 0);
+        let named = |f: &str, show: &str, n: u32| assert_eq!(season_of(f), Some((n, Some(show.to_string()))), "{f}");
+        named("Mr Robot S02", "Mr Robot", 2);
+        named("Dark.S01.1080p.BluRay.x264-GROUP", "Dark", 1);
+        named("The Wire - Season 3", "The Wire", 3);
+        named("La Casa de Papel Temporada 2 (2018)", "La Casa de Papel", 2);
+        for f in ["Dark.S01E02.1080p.WEB", "Films", "Stargate SG-1", "Top 10", "The Series"] {
+            assert_eq!(season_of(f), None, "{f}");
+        }
+    }
+
+    #[test]
+    fn names_the_show_from_a_season_folder_that_carries_it_or_from_the_library_folder() {
+        assert_eq!(show_folder("Dark S01/Dark.S01E01.mkv").as_deref(), Some("Dark"));
+        assert_eq!(show_folder("Series/Mr.Robot.S02.1080p.BluRay/Mr.Robot.S02E01.mkv").as_deref(), Some("Mr Robot"));
+        // The show's own folder was added to the library: its seasons are at the top
+        assert_eq!(show_folder("Season 1/01.mkv"), None);
+        assert_eq!(show_folder_in("Season 1/01.mkv", Some("Dark")).as_deref(), Some("Dark"));
+        assert_eq!(show_folder_in("Specials/Behind the scenes.mkv", Some("Dark (2017)")).as_deref(), Some("Dark"));
+        assert_eq!(show_folder_in("Heat (1995).mkv", Some("Films")), None);
+    }
+
+    #[test]
+    fn reads_episodes_named_without_season_marks() {
+        let got = |p: &str| {
+            let x = parse(p);
+            (x.kind, x.title, x.season, x.episode)
+        };
+        let ep = |title: &str, season: Option<u32>, n: u32| (Kind::Episode, title.to_string(), season, Some(n));
+        assert_eq!(got("Dark S02/03 - Ghosts.mkv"), ep("Dark", Some(2), 3));
+        assert_eq!(got("Frieren/Season 1/Frieren 05.mkv"), ep("Frieren", Some(1), 5));
+        assert_eq!(got("Frieren/Season 1/Frieren.105.1080p.mkv"), ep("Frieren", Some(1), 5));
+        assert_eq!(got("Frieren E05.mkv"), ep("Frieren", None, 5));
+        assert_eq!(got("Mr Robot (2015) - 05.mkv"), ep("Mr Robot", None, 5));
+        // Not episodes: a number that is the film's name, with nothing around to say otherwise
+        for film in ["Apollo 13.mkv", "District 9 (2009).mkv", "Ocean's 11.mkv", "Blade Runner 2049.mkv"] {
+            assert_eq!(parse(film).kind, Kind::Movie, "{film}");
+        }
+    }
+
+    #[test]
+    fn one_show_whatever_its_accents_years_and_season_words() {
+        let same = |a: &str, b: &str| assert_eq!(series_key(a), series_key(b), "{a} / {b}");
+        same("Pokémon", "Pokemon");
+        same("Law & Order", "Law and Order");
+        same("Mr Robot 2015", "Mr. Robot");
+        same("Mr Robot (2015) Season 2", "Mr Robot");
+        same("Overlord II", "Overlord");
+        same("Mob Psycho 100 2nd Season", "Mob Psycho 100");
+        same("Attack on Titan Part 2", "Attack on Titan");
+        assert_eq!(series_key("1923"), "1923");
+        assert_ne!(series_key("Doctor Who"), series_key("Doctor Foster"));
     }
 }

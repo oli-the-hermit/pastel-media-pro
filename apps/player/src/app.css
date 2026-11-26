@@ -16,9 +16,18 @@ body {
   background: transparent;
 }
 
+/* The playing video fills the page: its height is the page's, never the picture's, so the controls stay in view. */
 .mp-video {
   height: 100%;
+  min-height: 0;
+}
+/* With the picture up, the player's middle is a hole onto it. Around the player the page stays solid: a shadow of
+   the page's colour covers everything outside its rounded edge, so only the picture and its bars show through. */
+.mp-video.has-picture {
   --ps-media-backdrop: transparent;
+}
+.mp-video.has-picture > .mp-video-player {
+  box-shadow: 0 0 0 100vmax var(--ps-bg);
 }
 
 /* The app sits in a positioned layer after the browser's video element, so it paints above it. */
@@ -32,7 +41,8 @@ body {
   display: none;
   position: fixed;
   object-fit: contain;
-  background: var(--ps-bg);
+  /* The bars beside the picture are the player's backdrop, as the desktop engine paints them. */
+  background: var(--ps-media-backdrop);
 }
 
 .mp-web-video.is-shown {
@@ -66,10 +76,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--ps-space-24);
-}
-
-.mp-streaming > :first-child {
-  align-self: flex-start;
 }
 
 /* The empty player: its sentence, then one way to open files. */
@@ -180,4 +186,313 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--ps-space-4);
+}
+
+/* About: the version, the licence and the third-party notices (plan 10.2). */
+.mp-about p {
+  margin: 0;
+  color: var(--ps-text-2);
+}
+
+.mp-about-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+}
+
+.mp-about-head h2 {
+  margin: 0;
+  font-size: var(--ps-font-size-xl);
+  color: var(--ps-text-1);
+}
+
+.mp-about-url {
+  user-select: text;
+}
+
+.mp-about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-8);
+}
+
+.mp-about-text {
+  max-height: 40vh;
+  margin: 0;
+  padding: var(--ps-space-12);
+  overflow: auto;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-2);
+  color: var(--ps-text-2);
+  font-size: var(--ps-font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Settings → Library: a folder that can't be found stays listed, with a note. */
+.mp-folder-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mp-folders li.is-gone .mp-folder-path {
+  color: var(--ps-text-3);
+}
+
+.mp-folder-gone {
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-warning);
+}
+
+/* The player when a file can't be played: its name, the reason under Details, Open files. */
+.mp-cant-play-file {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ps-text-1);
+}
+
+.mp-cant-play-details {
+  max-width: 60ch;
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Help: short sections and the keyboard shortcuts. */
+.mp-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-24);
+}
+
+.mp-help section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+}
+
+.mp-help h3 {
+  margin: 0;
+  font-size: var(--ps-font-size-md);
+  color: var(--ps-text-1);
+}
+
+.mp-help p {
+  margin: 0;
+  color: var(--ps-text-2);
+}
+
+.mp-keys {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+  margin: 0;
+}
+
+.mp-keys div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ps-space-12);
+}
+
+.mp-keys dt {
+  flex: none;
+  width: 10ch;
+}
+
+.mp-keys dd {
+  margin: 0;
+  color: var(--ps-text-2);
+}
+
+.mp-keys kbd {
+  padding: var(--ps-space-2) var(--ps-space-6);
+  border-radius: var(--ps-radius-sm);
+  background: var(--ps-surface-3);
+  color: var(--ps-text-1);
+  font-family: inherit;
+  font-size: var(--ps-font-size-xs);
+  white-space: nowrap;
+}
+
+/* A media page's first line, the same on every page: what changes the view (views, later search and filters) at
+   the start, what acts on the library (Add a folder, Add files) at the end, against the right edge. */
+.mp-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ps-space-12);
+}
+.mp-page-head > .mp-add {
+  margin-left: auto;
+}
+
+.mp-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ps-space-8);
+}
+
+.mp-folder-facts {
+  font-size: var(--ps-font-size-xs);
+  color: var(--ps-text-3);
+}
+
+/* A film's synopsis on its title page (from the .nfo beside it). */
+.mp-title-overview {
+  max-width: 70ch;
+  margin: 0 0 var(--ps-space-8);
+  color: var(--ps-text-2);
+}
+
+.mp-title-poster {
+  overflow: hidden;
+}
+
+.mp-title-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The review list (ux.md §2b): filters, a status line, the files (only the rows in view are drawn), and Add. */
+/* The review list needs more room than a wide dialog's form width (a design-system size to add, with DataTable). */
+.mp-review-dialog {
+  --ps-modal-max-width-wide: 1040px;
+}
+
+.mp-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+  min-width: 0;
+}
+
+.mp-review-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+}
+
+.mp-review-filters > :first-child {
+  align-self: flex-start;
+}
+
+.mp-review-selects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--ps-space-8);
+}
+
+.mp-review-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-8) var(--ps-space-16);
+}
+
+.mp-review-checks label,
+.mp-review-footer label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ps-space-8);
+  color: var(--ps-text-2);
+  font-size: var(--ps-font-size-sm);
+}
+
+.mp-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-4) var(--ps-space-16);
+  color: var(--ps-text-3);
+  font-size: var(--ps-font-size-xs);
+}
+
+.mp-review-table {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-2);
+  overflow: hidden;
+}
+
+.mp-review-body {
+  height: min(44vh, 420px);
+  overflow-y: auto;
+}
+
+.mp-review-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 56px 72px 80px 56px;
+  align-items: center;
+  gap: var(--ps-space-8);
+  padding: 0 var(--ps-space-12) 0 var(--ps-space-4);
+  color: var(--ps-text-2);
+  font-size: var(--ps-font-size-sm);
+}
+
+.mp-review-head {
+  height: 36px;
+  color: var(--ps-text-3);
+  font-size: var(--ps-font-size-xs);
+  font-weight: var(--ps-font-weight-semibold);
+}
+
+.mp-review-check {
+  display: grid;
+  place-items: center;
+}
+
+.mp-review-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mp-review-file,
+.mp-review-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-review-file {
+  color: var(--ps-text-1);
+}
+
+.mp-review-folder {
+  color: var(--ps-text-3);
+  font-size: var(--ps-font-size-xs);
+}
+
+.mp-review-row.is-in-library .mp-review-file {
+  color: var(--ps-text-3);
+}
+
+.mp-review-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-review-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ps-space-12);
+}
+
+.mp-review-actions {
+  display: flex;
+  gap: var(--ps-space-8);
+}
+
+/* The import queue's card clears the now-playing bar. */
+.mp-queue {
+  --ps-transfer-card-bottom: calc(var(--ps-space-16) * 5);
 }

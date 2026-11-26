@@ -1,0 +1,13 @@
+{
+  "file": "libmpv-2.dll",
+  "sha256": "f454227e5b608966230605bdaaecc9b19e8d735b7b5cf8777ec0985d3bb09dfe",
+  "size": 101356544,
+  "licence": "LGPL-2.1-or-later",
+  "mpv": "v0.41.0-1224-g6a262d11f (built with -Dgpl=false)",
+  "ffmpeg": "N-127696-g8b3525e71 (no --enable-gpl)",
+  "archive": {
+    "name": "mpv-dev-lgpl-x86_64-20261019-git-6a262d11f6.7z",
+    "sha256": "95420b393fd86dc39853d5df6b03bed318720c501a089930231058558ec40bf2",
+    "from": "https://github.com/zhongfly/mpv-winbuild/releases"
+  }
+}

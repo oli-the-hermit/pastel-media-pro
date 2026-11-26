@@ -1,7 +1,7 @@
 {
   "name": "@pastel-media/player",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Pastel Media Pro, the desktop app.",
   "license": "MIT",
   "author": "San Milano",
@@ -12,10 +12,10 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:build": "node ../../scripts/release/check-libmpv.ts && node ../../scripts/release/notices.ts --check && tauri build --config src-tauri/tauri.release.conf.json",
     "desktop:test-build": "tauri build --debug --no-bundle --config src-tauri/tauri.test.conf.json",
-    "desktop:build:test-installer": "tauri build --config src-tauri/tauri.test-installer.conf.json",
-    "desktop:build:test-media": "tauri build --features test-media --config src-tauri/tauri.test-installer.conf.json"
+    "desktop:build:test-installer": "node ../../scripts/release/check-libmpv.ts && tauri build --config src-tauri/tauri.test-installer.conf.json",
+    "desktop:build:test-media": "node ../../scripts/release/check-libmpv.ts && tauri build --features test-media --config src-tauri/tauri.test-installer.conf.json"
   },
   "dependencies": {
     "@pastel-media/media-ui": "0.0.0",

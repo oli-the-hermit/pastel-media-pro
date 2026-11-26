@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { EmptyState, SegmentedControl } from '@pastel-studio/react';
 import { strings } from '../strings';
+import { AddButtons } from './LibraryFolders';
 import type { Library } from './library';
 import { MoviesPage, SeriesPage } from './VideoPages';
 
@@ -21,7 +22,10 @@ export function StreamingPage({ library }: { library: Library | null }) {
   else content = <EmptyState>{strings.streaming.views[view].empty}</EmptyState>;
   return (
     <div className="mp-streaming">
-      <SegmentedControl options={VIEWS} value={view} onChange={setView} ariaLabel={strings.streaming.viewsLabel} />
+      <div className="mp-page-head">
+        <SegmentedControl options={VIEWS} value={view} onChange={setView} ariaLabel={strings.streaming.viewsLabel} />
+        <AddButtons preset="movies" />
+      </div>
       {content}
     </div>
   );

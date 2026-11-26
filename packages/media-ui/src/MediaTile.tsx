@@ -19,7 +19,12 @@ export interface MediaTileProps extends Omit<React.ButtonHTMLAttributes<HTMLButt
  */
 export function MediaTile({ title, subtitle, cover, icon, shape = 'square', current = false, className, ...rest }: MediaTileProps) {
   return (
-    <button type="button" className={['mu-tile', `mu-tile--${shape}`, current ? 'is-current' : '', className ?? ''].filter(Boolean).join(' ')} {...rest}>
+    <button
+      type="button"
+      className={['mu-tile', `mu-tile--${shape}`, current ? 'is-current' : '', className ?? ''].filter(Boolean).join(' ')}
+      aria-current={current ? 'true' : undefined}
+      {...rest}
+    >
       <span className="mu-tile-art">{cover ? <img src={cover} alt="" draggable={false} /> : <span className="mu-tile-icon">{icon}</span>}</span>
       <span className="mu-tile-title">{title}</span>
       {subtitle && <span className="mu-tile-subtitle">{subtitle}</span>}

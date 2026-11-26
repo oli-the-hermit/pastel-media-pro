@@ -8,10 +8,11 @@ with nothing leaving the computer. It is built on the
 [Pastel Studio design system](https://github.com/oli-the-hermit/pastel-studio-ds), the same base
 as [Focus Space](https://github.com/oli-the-hermit/Focus-Space).
 
-> **Status: in development, phase 2 (open a file, it plays).** The app opens on its player. A file
-> opened from Windows ("Open with", a double-click, a drop on the window) plays at once in the
-> built-in player, and several files become one queue. The Music and Streaming pages show a local
-> test folder in development builds; the real library and its import come in phase 3.
+> **Status: alpha, on the way to v0.1.** A file opened from Windows ("Open with", a double-click, a
+> drop on the window) plays at once in the built-in player (libmpv), and several files become one
+> queue. Music and Streaming read the folders you add in Settings → Library: your albums and songs,
+> and your films and series, one series per show, each with its own title page. Before v0.1 comes
+> the import flow: a review list, an import queue and a library database.
 
 ## Setup
 
@@ -28,6 +29,10 @@ cd pastel-studio-theme && npm install && cd ..
 cd pastel-media-pro && npm install
 ```
 
+The desktop app plays through libmpv, which is not in the repository (101 MB): extract
+`libmpv-2.dll` from the pinned LGPL archive named in [docs/third-party.md](docs/third-party.md)
+into `lib/`.
+
 ## Commands
 
 | Command | What it does |
@@ -35,9 +40,10 @@ cd pastel-media-pro && npm install
 | `npm run dev` | The app in the browser, at http://localhost:3300 |
 | `npm run desktop` | The desktop app, reloading as you edit |
 | `npm run desktop:test-build` | A debug desktop build under its own identifier, so it never touches the installed app's data |
-| `npm run desktop:build` | The Windows installer (NSIS) |
+| `npm run desktop:build` | The Windows installer (NSIS), with libmpv bundled. It first checks `lib/libmpv-2.dll` is the pinned LGPL build and that the third-party notices are up to date |
 | `npm run desktop:build:test-installer` | An installer for testing, "Pastel Media Pro Test": its own identifier and data, libmpv bundled |
 | `npm run check` | Types, ESLint, Stylelint, the tests and a production build |
+| `npm run notices` | Regenerates the third-party notices the app shows in About ([docs/third-party.md](docs/third-party.md)) |
 | `npm run visual:capture` | A screenshot of every view of the shell in both themes; `visual:diff` compares them with the baseline. Run `npm run visual:install` once first: it puts Playwright's Chromium in `node_modules` |
 | `npm run corpus` | Generates a synthetic media test corpus into `corpus/` with ffmpeg |
 
@@ -52,4 +58,6 @@ and pull request, with the design system's `main` checked out beside the app.
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE). The player plays media through libmpv and FFmpeg, shipped as a separate DLL under
+the LGPL 2.1 or later; [docs/third-party.md](docs/third-party.md) lists everything the app ships from
+others and where their source is.

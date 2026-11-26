@@ -50,6 +50,15 @@ describe('Streaming title pages', () => {
     expect(screen.getByRole('list', { name: strings.streaming.views.movies.label })).toBeTruthy();
   });
 
+  it('keeps a keyboard user’s place: Back takes focus on open, the tile gets it back after', async () => {
+    const user = await open('movies');
+    screen.getByRole('button', { name: /Heat/ }).focus();
+    await user.keyboard('{Enter}');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: strings.videos.allMovies }));
+    await user.keyboard('{Enter}');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Heat/ }));
+  });
+
   it('opens a series on its first season, with its episodes and the other seasons to pick', async () => {
     const user = await open('series');
     const tiles = within(screen.getByRole('list', { name: strings.streaming.views.series.label })).getAllByRole('button');

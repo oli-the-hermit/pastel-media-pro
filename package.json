@@ -1,7 +1,7 @@
 {
   "name": "pastel-media-pro",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A local media player for audio and video, built on the Pastel Studio design system.",
   "license": "MIT",
   "author": "San Milano",
@@ -22,6 +22,7 @@
     "build": "npm run build -w @pastel-media/player",
     "typecheck": "tsc -p apps/player --noEmit",
     "lint": "eslint .",
+    "figma:screens": "node tools/figma-screens/build.mjs",
     "lint:css": "stylelint \"apps/*/src/**/*.css\" \"packages/*/src/**/*.css\" --allow-empty-input",
     "test": "vitest run",
     "visual:install": "node scripts/visual/browser.ts --install",
@@ -29,7 +30,8 @@
     "visual:baseline": "node scripts/visual/capture.ts --out documentation/visual/baseline",
     "visual:diff": "node scripts/visual/diff.ts",
     "corpus": "node scripts/corpus/generate.ts",
-    "check": "npm run typecheck && npm run lint && npm run lint:css && npm run test && npm run build"
+    "check": "npm run typecheck && npm run lint && npm run lint:css && npm run test && npm run build",
+    "notices": "node scripts/release/notices.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

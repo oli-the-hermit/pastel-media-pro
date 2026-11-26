@@ -6,9 +6,15 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaElement, type MediaController } from '@pastel-studio/react';
 import { isDesktop } from '@pastel-studio/desktop';
-import { engine, useEngine } from './engine';
+import { engine, hasPicture, useEngine, type Engine } from './engine';
 import type { LibTrack, LibVideo } from './library';
 import type { Opened } from './opened';
+
+/** A file that could not be played: the player says so, with the engine's reason under Details. */
+export interface PlayFailure {
+  path: string;
+  reason: string;
+}
 
 /** Where the picture goes on the page, in CSS pixels; `null` when no video shows. */
 export type VideoBox = { left: number; top: number; width: number; height: number } | null;
@@ -19,8 +25,17 @@ export interface Playback {
   index: number;
   current: LibTrack | null;
   video: LibVideo | null;
+  /**
+   * The video's picture is on screen. Until then the player stays solid and shows it is loading; the page only
+   * turns see-through, for the picture behind it, once there is a picture to see.
+   */
+  pictureReady: boolean;
   /** The last thing that could not be played, for a toast: 'unplayable', 'browser', or the engine's reason. */
   error: string | null;
+  /** A song that could not be opened and was skipped, for a toast (its path). */
+  skipped: string | null;
+  /** The file that could not be opened, when nothing else plays: the player shows it. */
+  failure: PlayFailure | null;
   playTracks: (tracks: LibTrack[], index: number) => void;
   playVideo: (video: LibVideo) => void;
   /**
@@ -33,6 +48,8 @@ export interface Playback {
   /** Stops and leaves the video, if one is playing. */
   stop: () => void;
   clearError: () => void;
+  clearSkipped: () => void;
+  clearFailure: () => void;
   /** The browser engine's picture box (the desktop engine is placed with margins instead, VideoView). */
   setVideoBox: (box: VideoBox) => void;
 }
@@ -45,7 +62,7 @@ interface Backend {
   stop: () => void;
 }
 
-function useMpvBackend(): Backend {
+function useMpvBackend(): Backend & { media: Engine } {
   const media = useEngine();
   const endedPath = media.status.eof === 'yes' ? media.status.path ?? '' : '';
   return useMemo(() => ({ media, endedPath, load: engine.load, stop: () => void engine.command('stop').catch(() => {}) }), [media, endedPath]);
@@ -104,14 +121,27 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   const [index, setIndex] = useState(-1);
   const [video, setVideo] = useState<LibVideo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState<string | null>(null);
+  const [failure, setFailure] = useState<PlayFailure | null>(null);
   const [box, setVideoBox] = useState<VideoBox>(null);
+  // The path of the video whose picture is up, and when its file was asked for.
+  const [pictureFor, setPictureFor] = useState<string | null>(null);
+  const askedAt = useRef(0);
+  const stopTimer = useRef<number>();
 
   const mpv = useMpvBackend();
   const web = useWebBackend(videoEl, setError);
   const backend = native ? mpv : web;
   const { load: loadFile, stop: stopFile, media, endedPath } = backend;
 
-  const load = useCallback((path: string) => void loadFile(path).catch((e) => setError(String(e))), [loadFile]);
+  const load = useCallback(
+    (path: string) => {
+      window.clearTimeout(stopTimer.current);
+      setFailure(null);
+      void loadFile(path).catch((e) => setError(String(e)));
+    },
+    [loadFile],
+  );
 
   const playTracks = useCallback(
     (tracks: LibTrack[], start: number) => {
@@ -120,6 +150,8 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
         setError('unplayable');
         return;
       }
+      // The song asked for has no audio the player can read: say so rather than start another one silently.
+      if (i > start) setSkipped(tracks[start].path);
       setVideo(null);
       setQueue(tracks);
       setIndex(i);
@@ -143,6 +175,8 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       setQueue([]);
       setIndex(-1);
       setVideo(v);
+      setPictureFor(null);
+      askedAt.current = Date.now();
       load(v.path);
     },
     [load],
@@ -158,12 +192,55 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     [playVideo, playTracks],
   );
 
+  // The video leaves the page first, which turns it solid; the engine lets go of its picture a moment later,
+  // so nothing behind the window shows in between.
   const stop = useCallback(() => {
-    stopFile();
+    const wasVideo = video != null;
+    setVideo(null);
+    setPictureFor(null);
+    setQueue([]);
+    setIndex(-1);
+    window.clearTimeout(stopTimer.current);
+    if (wasVideo) stopTimer.current = window.setTimeout(stopFile, 80);
+    else stopFile();
+  }, [stopFile, video]);
+
+  // The picture is up: the engine says so (the desktop app), or the element knows its size (the browser).
+  const status = native ? mpv.media.status : null;
+  const webSized = !native && web.media.width > 0 && web.media.duration > 0;
+  useEffect(() => {
+    if (!video || pictureFor === video.path) return;
+    if (status ? hasPicture(status, video.path, Date.now() - askedAt.current) : webSized) setPictureFor(video.path);
+  }, [video, pictureFor, status, webSized]);
+
+  // A file the engine could not open (mpv's end-file error): a song is skipped for the next one; otherwise the
+  // player says so. Each failure once: failures from before this page loaded are not shown.
+  const loadError = native ? mpv.media.status.loadError ?? null : null;
+  const seenFailure = useRef<number | null>(null);
+  useEffect(() => {
+    const seq = loadError?.seq ?? 0;
+    if (seenFailure.current === null) {
+      seenFailure.current = seq;
+      return;
+    }
+    if (!loadError || seq <= seenFailure.current) return;
+    seenFailure.current = seq;
+    const song = index >= 0 ? queue[index] : undefined;
+    if (song && song.path === loadError.path) {
+      const i = playableFrom(queue, index + 1, 1);
+      if (i >= 0) {
+        setSkipped(loadError.path);
+        setIndex(i);
+        load(queue[i].path);
+        return;
+      }
+    }
+    if (!song && !(video && video.path === loadError.path)) return;
     setVideo(null);
     setQueue([]);
     setIndex(-1);
-  }, [stopFile]);
+    setFailure({ path: loadError.path, reason: loadError.reason });
+  }, [loadError, index, queue, video, load]);
 
   // When a song ends, the next one starts; once per song.
   const advancedFor = useRef('');
@@ -180,7 +257,10 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       index,
       current: index >= 0 ? queue[index] ?? null : null,
       video,
+      pictureReady: !!video && pictureFor === video.path,
       error,
+      skipped,
+      failure,
       playTracks,
       playVideo,
       playOpened,
@@ -188,9 +268,11 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       previous: () => step(-1),
       stop,
       clearError: () => setError(null),
+      clearSkipped: () => setSkipped(null),
+      clearFailure: () => setFailure(null),
       setVideoBox,
     }),
-    [media, queue, index, video, error, playTracks, playVideo, playOpened, step, stop],
+    [media, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop],
   );
   const shown = !!video && !!box;
   return (
