@@ -116,6 +116,7 @@ export function VideoTile({ video, history, id, shape = 'poster', title, subtitl
       progress={videoState(video, history) === 'progress' ? progressOf(play) : undefined}
       watched={play?.finished ?? false}
       current={current}
+      unavailable={video.missing ? strings.missing.short : undefined}
       data-tile-id={id ?? video.id}
       {...rest}
     />
@@ -135,6 +136,7 @@ export function SeriesTile({ series, history, id, ...rest }: TileRest & { series
       icon={<IconMonitor size={32} />}
       progress={state === 'progress' ? seriesProgress(series, history) : undefined}
       watched={state === 'watched'}
+      unavailable={series.episodes.every((e) => e.missing) ? strings.missing.short : undefined}
       data-tile-id={id ?? series.id}
       {...rest}
     />

@@ -282,6 +282,8 @@ export function toTrack(t: LibTrack, cover?: string): Track {
     number: t.number ?? undefined,
     year: t.year ?? undefined,
     cover,
+    // A file that can't be found: its row says so and doesn't play (the window offers to find it).
+    unavailable: t.missing ? strings.missing.short : undefined,
   };
 }
 

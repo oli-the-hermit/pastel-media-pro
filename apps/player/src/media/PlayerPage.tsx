@@ -3,6 +3,7 @@ import { Button, EmptyState, IconFolderOpen, MusicPlayer, PlayQueue, TextButton,
 import { isDesktop } from '@pastel-studio/desktop';
 import { strings } from '../strings';
 import { toTrack, useCover, useCovers, useOpenedCover, type Library } from './library';
+import { useMissing } from './missing';
 import { usePlayback, type PlayFailure } from './playback';
 import { useRemembered } from './remember';
 import { lastCover, saveLastCover } from './session';
@@ -71,6 +72,7 @@ interface PlayerPageProps {
  */
 export function PlayerPage({ library, onOpenFiles, onLeaveVideo }: PlayerPageProps) {
   const playback = usePlayback();
+  const missing = useMissing();
   const track = useNowPlayingTrack(library);
   const [queueOpen, setQueueOpen] = useRemembered<boolean>('pastelmedia_queue_open', true, (v) => typeof v === 'boolean');
   const { queue, index } = playback;
@@ -109,6 +111,10 @@ export function PlayerPage({ library, onOpenFiles, onLeaveVideo }: PlayerPagePro
             onPlay={(t) => {
               if (t.id === track.id) playback.engine.toggle();
               else playback.playTracks(queue, queue.findIndex((x) => x.id === t.id));
+            }}
+            onUnavailable={(t) => {
+              const song = queue.find((x) => x.id === t.id);
+              if (song) missing.find({ path: song.path, name: song.title });
             }}
             onReorder={playback.moveInQueue}
             onRemove={(t) => playback.removeFromQueue(t.id)}

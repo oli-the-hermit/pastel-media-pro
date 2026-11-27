@@ -54,6 +54,7 @@ function AlbumTile({ album, current, onOpen }: { album: AlbumEntry; current: boo
       image={cover}
       icon={<IconMusic size={28} />}
       current={current}
+      unavailable={album.tracks.every((t) => t.missing) ? strings.missing.short : undefined}
       data-tile-id={album.id}
       onClick={onOpen}
     />
@@ -101,6 +102,10 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
           else playback.playTracks(songs, songs.findIndex((x) => x.id === t.id));
         }}
         onPause={playback.engine.pause}
+        onUnavailable={(t) => {
+          const song = byId.get(t.id);
+          if (song) missing.find({ path: song.path, name: song.title });
+        }}
         rowActions={(t) => {
           const song = byId.get(t.id);
           if (song?.missing) return missing.menu({ path: song.path, name: song.title });
@@ -143,6 +148,10 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
           else playback.playTracks(tracks, i);
         }}
         onPause={playback.engine.pause}
+        onUnavailable={(t) => {
+          const song = tracks.find((x) => x.id === t.id);
+          if (song) missing.find({ path: song.path, name: song.title });
+        }}
         actions={[...queueThem(tracks), ...addTo(tracks.map((t) => t.path))]}
         rowActions={(t) => {
           const song = tracks.find((x) => x.id === t.id);
