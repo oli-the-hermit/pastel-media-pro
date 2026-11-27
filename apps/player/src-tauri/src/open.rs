@@ -96,6 +96,7 @@ fn describe(path: &Path, id: String) -> Option<Opened> {
                 path: shown.clone(),
                 unplayable: false,
                 added_at: 0,
+                missing: false,
             });
             Some(Opened::Audio(LibTrack { id, path: shown, ..track }))
         }

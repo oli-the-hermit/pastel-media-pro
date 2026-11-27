@@ -38,6 +38,9 @@ export interface Playback {
   skipped: string | null;
   /** The file that could not be opened, when nothing else plays: the player shows it. */
   failure: PlayFailure | null;
+  /** A file that was asked for and isn't there (its path): the window offers to find it (missing.tsx). */
+  missing: string | null;
+  clearMissing: () => void;
   playTracks: (tracks: LibTrack[], index: number) => void;
   /** Plays a video where it was left, when it was left part-way; `fromStart` plays it from its start. */
   playVideo: (video: LibVideo, opts?: { fromStart?: boolean }) => void;
@@ -130,7 +133,7 @@ function useWebBackend(el: React.RefObject<HTMLVideoElement>, onError: (e: strin
 const Ctx = createContext<Playback | null>(null);
 
 const playableFrom = (tracks: LibTrack[], start: number, step: 1 | -1) => {
-  for (let i = start; i >= 0 && i < tracks.length; i += step) if (!tracks[i].unplayable) return i;
+  for (let i = start; i >= 0 && i < tracks.length; i += step) if (!tracks[i].unplayable && !tracks[i].missing) return i;
   return -1;
 };
 
@@ -152,6 +155,7 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string | null>(null);
   const [failure, setFailure] = useState<PlayFailure | null>(null);
+  const [missing, setMissing] = useState<string | null>(null);
   const [box, setVideoBox] = useState<VideoBox>(null);
   // The path of the video whose picture is up, and when its file was asked for.
   const [pictureFor, setPictureFor] = useState<string | null>(null);
@@ -200,13 +204,19 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
       // Playing the same file again is one more play.
       if (counted.current === path) counted.current = '';
       startAt.current = start && start > 0 ? start : 0;
-      void loadFile(path, start).catch((e) => setError(String(e)));
+      // The desktop app's word for a file that isn't there (engine.rs): a drive not connected, a file moved since.
+      void loadFile(path, start).catch((e) => (String(e).includes('file-missing') ? setMissing(path) : setError(String(e))));
     },
     [loadFile],
   );
 
   const playTracks = useCallback(
     (tracks: LibTrack[], start: number) => {
+      // The song asked for can't be found: say so, with the ways to find it, rather than start another one.
+      if (tracks[start]?.missing) {
+        setMissing(tracks[start].path);
+        return;
+      }
       const i = playableFrom(tracks, start, 1);
       if (i < 0) {
         setError('unplayable');
@@ -264,7 +274,7 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
   /** Songs go in after the playing one (`next`) or at the end. The ones that can't be played stay out. */
   const enqueue = useCallback(
     (tracks: LibTrack[], next: boolean) => {
-      const wanted = tracks.filter((t, i) => !t.unplayable && tracks.findIndex((x) => x.id === t.id) === i);
+      const wanted = tracks.filter((t, i) => !t.unplayable && !t.missing && tracks.findIndex((x) => x.id === t.id) === i);
       if (wanted.length === 0) return 0;
       let added = 0;
       const queued = requeue((songs, now) => {
@@ -292,6 +302,10 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
   const asked = useRef(0);
   const playVideo = useCallback(
     (v: LibVideo, opts?: { fromStart?: boolean }) => {
+      if (v.missing) {
+        setMissing(v.path);
+        return;
+      }
       setQueue([]);
       setIndex(-1);
       setVideo(v);
@@ -442,6 +456,8 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
       error,
       skipped,
       failure,
+      missing,
+      clearMissing: () => setMissing(null),
       playTracks,
       playVideo,
       playOpened,
@@ -459,7 +475,7 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
       setVideoBox,
     }),
     [
-      shownMedia, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop,
+      shownMedia, queue, index, video, pictureFor, error, skipped, failure, missing, playTracks, playVideo, playOpened, step, stop,
       moveInQueue, removeFromQueue, clearUpNext, playNext, addToQueue,
     ],
   );

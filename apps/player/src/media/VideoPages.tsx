@@ -1,12 +1,13 @@
 import { useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import {
-  Button, IconCheck, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, TitleGrid, TitleTile, formatDuration, formatTime,
+  Button, IconCheck, IconFileVideo, IconMonitor, IconPlay, IconSearch, IconWarning, ListRow, Select, TextButton, TitleGrid, TitleTile, formatDuration, formatTime,
   formatTimeLeft, type TitleTileShape,
 } from '@pastel-studio/react';
 import { strings } from '../strings';
 import { tier } from './import/filters';
 import { progressOf, resumePoint, useHistory, type Play } from './history';
 import { usePoster, type LibSeries, type LibVideo } from './library';
+import { useMissing } from './missing';
 import { usePlayback } from './playback';
 import { isClip, leftOf, nextEpisode, seriesProgress, seriesState, videoName, videoState } from './streaming';
 
@@ -18,7 +19,7 @@ type TileRest = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title'>;
  * A film's or a series' title page: the poster, the name and its facts, the synopsis, Play, then what it holds. An
  * early form of Phase 5's details page: the poster and synopsis come from the art and `.nfo` beside the files.
  */
-function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onBack, backLabel, children }: {
+function TitlePage({ kind, title, facts, icon, poster, overview, play, also, note, onBack, backLabel, children }: {
   kind: string;
   title: string;
   facts: string[];
@@ -26,9 +27,11 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onB
   /** An image hash from the library's cache. */
   poster?: string | null;
   overview?: string | null;
-  play: { label: string; onClick: () => void } | null;
+  play: { label: string; icon?: ReactNode; onClick: () => void } | null;
   /** A second action beside Play ("Start over"). */
   also?: { label: string; onClick: () => void } | null;
+  /** A line over the actions: the file can't be found. */
+  note?: string;
   onBack: () => void;
   backLabel: string;
   children?: ReactNode;
@@ -56,9 +59,10 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onB
             </p>
           )}
           {overview ? <p className="mp-title-overview">{overview}</p> : undefined}
+          {note ? <p className="mp-title-note">{note}</p> : undefined}
           {play && (
             <div className="mp-title-actions">
-              <Button variant="primary" icon={<IconPlay />} onClick={play.onClick}>
+              <Button variant="primary" icon={play.icon ?? <IconPlay />} onClick={play.onClick}>
                 {play.label}
               </Button>
               {also ? <Button onClick={also.onClick}>{also.label}</Button> : undefined}
@@ -164,6 +168,7 @@ export function SeriesGrid({ series, history, label, onOpen }: { series: LibSeri
 export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; backLabel: string; onBack: () => void }) {
   const playback = usePlayback();
   const history = useHistory();
+  const missing = useMissing();
   const left = resumePoint(history.get(video.path));
   return (
     <TitlePage
@@ -173,8 +178,13 @@ export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; back
       icon={<IconFileVideo size={48} />}
       poster={video.poster}
       overview={video.overview}
-      play={{ label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(video) }}
-      also={left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(video, { fromStart: true }) } : null}
+      play={
+        video.missing
+          ? { label: strings.missing.find, icon: <IconSearch />, onClick: () => missing.find({ path: video.path, name: videoName(video) }) }
+          : { label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(video) }
+      }
+      also={!video.missing && left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(video, { fromStart: true }) } : null}
+      note={video.missing ? strings.missing.short : undefined}
       onBack={onBack}
       backLabel={backLabel}
     />
@@ -198,13 +208,14 @@ function seasonsOf(series: LibSeries): number[] {
 export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; backLabel: string; onBack: () => void }) {
   const playback = usePlayback();
   const history = useHistory();
+  const missing = useMissing();
   const seasons = useMemo(() => seasonsOf(series), [series]);
   const started = seriesState(series, history) !== 'unwatched';
   const next = started ? nextEpisode(series, history) : null;
   // Specials (season 0) are listed but a series opens on its first real season, or on the one it goes on with.
   const [season, setSeason] = useState(() => (next ? seasonOf(next) : (seasons.find((s) => s > 0) ?? seasons[0] ?? NO_SEASON)));
   const episodes = series.episodes.filter((e) => seasonOf(e) === season);
-  const first: LibVideo | undefined = next ?? episodes[0];
+  const first: LibVideo | undefined = next ?? episodes.find((e) => !e.missing);
   const resumes = !!first && resumePoint(history.get(first.path)) > 0;
   const realSeasons = seasons.filter((s) => s > 0).length;
   return (
@@ -241,11 +252,12 @@ export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; 
             return (
               <div role="listitem" key={e.id}>
                 <ListRow
-                  icon={watched ? <IconCheck size={18} /> : <IconPlay size={18} />}
+                  className={e.missing ? 'is-missing' : undefined}
+                  icon={e.missing ? <IconWarning size={18} /> : watched ? <IconCheck size={18} /> : <IconPlay size={18} />}
                   title={strings.videos.episodeRow(e.episode, e.episodeTitle)}
-                  description={[watched ? strings.videos.watched : leftLabel(e, history), e.fileName].filter(Boolean).join(' · ')}
+                  description={[e.missing ? strings.missing.short : watched ? strings.videos.watched : leftLabel(e, history), e.fileName].filter(Boolean).join(' · ')}
                   aria-current={playback.video?.id === e.id ? 'true' : undefined}
-                  onClick={() => playback.playVideo(e)}
+                  onClick={() => (e.missing ? missing.find({ path: e.path, name: e.fileName }) : playback.playVideo(e))}
                 />
               </div>
             );

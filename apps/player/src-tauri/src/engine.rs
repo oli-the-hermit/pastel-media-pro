@@ -367,6 +367,11 @@ pub async fn engine_load(
     start: Option<f64>,
     paused: Option<bool>,
 ) -> Result<(), String> {
+    // A file that moved or sits on a drive that isn't connected: the page offers to find it ("file-missing" is the
+    // word it knows this by).
+    if !std::path::Path::new(&path).is_file() {
+        return Err("file-missing".into());
+    }
     if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&app, &path) {
         // The library is only opened once a page shows it. The song the player greets with is asked for before
         // that: open the library, then look again.

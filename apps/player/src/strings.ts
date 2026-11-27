@@ -248,6 +248,28 @@ export const strings = {
     emptyPlaylist: 'No songs yet. Search above to add some, or use “Add to playlist” on a song or an album in Music.',
     failed: (reason: string) => `This could not be saved: ${reason}`,
   },
+  /** A file of the library that isn't where the library has it. */
+  missing: {
+    title: "Can't find this file",
+    /** On a row or a tile, in place of its second line. */
+    short: "Can't find this file",
+    why: 'It may have been moved, renamed or deleted, or it is on a drive that is not connected. Your playlists and where you left it are kept until you remove it.',
+    find: 'Find it…',
+    remove: 'Remove from library',
+    pickTitle: (name: string) => `Where is “${name}” now?`,
+    found: (name: string) => `“${name}” is back in your library.`,
+    removed: (name: string) => `“${name}” was removed from your library.`,
+    differentTitle: 'This looks like a different file',
+    different: (picked: string, name: string) => `“${picked}” is not the same file as “${name}” (another size or content). Use it in its place anyway?`,
+    useIt: 'Use this file',
+    taken: 'That file is in your library already.',
+    wrongKind: 'A song can only be replaced by a song, and a video by a video.',
+    failed: (reason: string) => `This could not be done: ${reason}`,
+    /** Settings → Library, on a folder that can't be found. */
+    findFolder: (folder: string) => `Find ${folder}…`,
+    findFolderTitle: (folder: string) => `Where is ${folder} now?`,
+    folderFound: (folder: string) => `${folder} is back. Checking it for changes.`,
+  },
   /** The player's queue of songs (the import's queue is `queue`). */
   playQueue: {
     /** In a song's or an album's menu. */

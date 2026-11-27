@@ -7,6 +7,7 @@ import { useNotify } from '../shell/notify';
 import { strings } from '../strings';
 import { toTrack, useCover, useCovers, type LibTrack, type Library } from './library';
 import { byName, firstFew, matcher, shuffled } from './listing';
+import { useMissing } from './missing';
 import { useAddToPlaylist, usePlaylistDialogs } from './PlaylistActions';
 import { addToPlaylist, setPlaylistSongs, usePlaylists, type Playlist } from './playlists';
 import { usePlayback } from './playback';
@@ -54,6 +55,7 @@ function OpenPlaylist({ playlist, library, songs, onBack }: { playlist: Playlist
   const notify = useNotify();
   const addTo = useAddToPlaylist(playlist.id);
   const queueThem = useQueueActions();
+  const missing = useMissing();
   const [query, setQuery] = useState('');
   const tracks = useMemo(() => songsOf(playlist, songs), [playlist, songs]);
   const covers = useCovers(useMemo(() => [...new Set(tracks.map((t) => songs.albumOf.get(t.id) ?? '').filter(Boolean))], [tracks, songs]));
@@ -148,7 +150,7 @@ function OpenPlaylist({ playlist, library, songs, onBack }: { playlist: Playlist
           if (!song) return [];
           const path = song.path;
           return [
-            ...queueThem([song]),
+            ...(song.missing ? missing.menu({ path, name: song.title }) : queueThem([song])),
             { key: 'remove', label: strings.playlists.remove, icon: <IconTrash size={16} />, onSelect: () => save(playlist.paths.filter((p) => p !== path)) },
             ...addTo([path]),
           ];

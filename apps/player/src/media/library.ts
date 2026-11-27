@@ -25,6 +25,8 @@ export interface LibTrack {
   unplayable: boolean;
   /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
   addedAt?: number;
+  /** The file isn't where the library has it ("Can't find this file"). */
+  missing?: boolean;
 }
 
 export interface LibAlbum {
@@ -59,6 +61,8 @@ export interface LibVideo {
   backdrop?: string | null;
   /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
   addedAt?: number;
+  /** The file isn't where the library has it ("Can't find this file"). */
+  missing?: boolean;
 }
 
 export interface LibSeries {

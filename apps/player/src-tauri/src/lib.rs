@@ -14,6 +14,7 @@ pub mod matching;
 mod open;
 pub mod parse;
 pub mod probe;
+pub mod relink;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -73,6 +74,9 @@ pub fn run() {
             import::places_list,
             import::places_rescan,
             import::places_remove,
+            relink::file_relink,
+            relink::file_forget,
+            relink::place_relink,
             open::open_launched,
             open::open_take,
             open::open_pick,

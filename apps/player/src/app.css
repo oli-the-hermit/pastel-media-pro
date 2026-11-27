@@ -253,6 +253,31 @@ body {
   color: var(--ps-warning);
 }
 
+/* "Can't find this file": the dialog's name and old path, the line on a title page, an episode's row. */
+.mp-missing-name {
+  margin: 0;
+  font-weight: var(--ps-font-weight-medium);
+  color: var(--ps-text-1);
+  overflow-wrap: anywhere;
+}
+
+.mp-missing-path {
+  margin: 0;
+  font-size: var(--ps-font-size-sm);
+  color: var(--ps-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.mp-title-note {
+  margin: 0 0 var(--ps-space-8);
+  color: var(--ps-warning);
+}
+
+.mp-episodes .is-missing {
+  color: var(--ps-text-3);
+}
+
 /* The player when a file can't be played: its name, the reason under Details, Open files. */
 .mp-cant-play-file {
   max-width: 100%;

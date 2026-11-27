@@ -45,6 +45,8 @@ pub struct LibTrack {
     pub unplayable: bool,
     /// When it joined the library, in seconds since 1970; 0 for a file read without the database.
     pub added_at: i64,
+    /// The file isn't where the library has it ("Can't find this file").
+    pub missing: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -82,6 +84,8 @@ pub struct LibVideo {
     /// When it joined the library, in seconds since 1970. For a file read without the database (the web version's
     /// test library): when it was last changed, which stands in for it.
     pub added_at: i64,
+    /// The file isn't where the library has it ("Can't find this file").
+    pub missing: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -295,6 +299,7 @@ fn track_from_name(path: &Path) -> Option<(LibTrack, String)> {
         path: path.to_string_lossy().to_string(),
         unplayable: false,
         added_at: 0,
+        missing: false,
     };
     Some((track, String::new()))
 }
@@ -327,6 +332,7 @@ pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
         path: path.to_string_lossy().to_string(),
         unplayable,
         added_at: 0,
+        missing: false,
     };
     Some((track, if album_artist.is_empty() { artist } else { album_artist }))
 }
@@ -607,25 +613,34 @@ fn most_common(titles: &[String]) -> String {
     counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(b.0.len().cmp(&a.0.len())).then(b.0.cmp(a.0))).map(|(t, _)| t.to_string()).unwrap_or_default()
 }
 
+/// Whether a file of the library can't be found: a check for changes said so, or, for a file added on its own
+/// (no library folder is checked for it), it isn't there now.
+fn gone(flagged: bool, place: Option<i64>, path: &str) -> bool {
+    flagged || (place.is_none() && !Path::new(path).is_file())
+}
+
 fn file_name_of(path: &str) -> String {
     Path::new(path).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// The library as the pages show it, from the database: files that are there (missing ones wait for Phase 5's
-/// "Can't find this file"), the person's corrections over the `.nfo` over the file name.
+/// The library as the pages show it, from the database: every file it holds, the ones that can't be found marked
+/// `missing` ("Can't find this file"); the person's corrections over the `.nfo` over the file name.
 pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, Vec<PathBuf>>)> {
     let started = std::time::Instant::now();
     let roots: Vec<String> = crate::import::places(conn).iter().map(|p| shown(&p.root)).collect();
     let audio = conn
         .prepare(
-            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem, f.added_at
-             FROM tracks t JOIN files f ON f.id = t.file_id WHERE f.missing = 0",
+            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem, f.added_at,
+                    f.missing, f.place_id
+             FROM tracks t JOIN files f ON f.id = t.file_id",
         )?
         .query_map([], |r| {
+            let path: String = r.get(1)?;
             Ok((
                 LibTrack {
                     id: format!("t{}", r.get::<_, i64>(0)?),
-                    path: r.get(1)?,
+                    missing: gone(r.get(12)?, r.get(13)?, &path),
+                    path,
                     title: r.get(2)?,
                     artist: r.get(3)?,
                     album: r.get(5)?,
@@ -644,12 +659,11 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .prepare(
             "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
                     o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
-                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at
+                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at, f.missing, f.place_id
              FROM videos v JOIN files f ON f.id = v.file_id
              LEFT JOIN places p ON p.id = f.place_id
              LEFT JOIN overrides o ON o.file_id = f.id
-             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)
-             WHERE f.missing = 0",
+             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)",
         )?
         .query_map([], |r| {
             let path: String = r.get(1)?;
@@ -681,6 +695,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     episode: r.get::<_, Option<u32>>(6)?.or(parsed.episode),
                     episode_title,
                     file_name: file_name_of(&path),
+                    missing: gone(r.get(21)?, r.get(22)?, &path),
                     path,
                     poster: r.get(9)?,
                     backdrop: r.get(10)?,
@@ -849,8 +864,11 @@ mod tests {
         .unwrap();
         let (lib, sources) = from_db(&conn).unwrap();
         assert_eq!(lib.roots, vec![r"D:\Media"]);
-        assert_eq!(lib.movies.len(), 1, "a missing file is left out");
-        let heat = &lib.movies[0];
+        assert_eq!(lib.movies.len(), 2, "a missing file is kept, and says so");
+        let gone = lib.movies.iter().find(|m| m.id == "v4").unwrap();
+        assert!(gone.missing);
+        let heat = lib.movies.iter().find(|m| m.id == "v1").unwrap();
+        assert!(!heat.missing && !lib.tracks[0].missing);
         assert_eq!((heat.title.as_str(), heat.overview.as_deref(), heat.genres.len(), heat.duration), ("Heat", Some("A thief."), 2, Some(6000.0)));
         assert_eq!(heat.id, "v1");
         assert_eq!(lib.series[0].title, "Dark");
@@ -1026,7 +1044,7 @@ mod tests {
     #[test]
     fn a_compilation_in_one_folder_is_one_album_with_no_artist_of_its_own() {
         let track = |title: &str, artist: &str, album: &str, path: &str| {
-            (LibTrack { id: String::new(), title: title.into(), artist: artist.into(), album: album.into(), number: None, disc: None, year: None, duration: 1.0, path: path.into(), unplayable: false, added_at: 0 }, artist.to_string())
+            (LibTrack { id: String::new(), title: title.into(), artist: artist.into(), album: album.into(), number: None, disc: None, year: None, duration: 1.0, path: path.into(), unplayable: false, added_at: 0, missing: false }, artist.to_string())
         };
         let (lib, _) = assemble(
             vec![],

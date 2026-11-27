@@ -6,6 +6,7 @@ import {
 import { strings } from '../strings';
 import { useHistory } from './history';
 import { AddButtons } from './LibraryFolders';
+import { useMissing } from './missing';
 import { shuffled } from './listing';
 import { toAlbum, toTrack, useCover, type LibTrack, type Library } from './library';
 import {
@@ -75,6 +76,7 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
   const playback = usePlayback();
   const addTo = useAddToPlaylist();
   const queueThem = useQueueActions();
+  const missing = useMissing();
   const byId = useMemo(() => new Map(songs.map((t) => [t.id, t])), [songs]);
   const [shown, sentinel] = useShown(songs.length, songs);
   const tracks = useMemo(
@@ -101,6 +103,7 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
         onPause={playback.engine.pause}
         rowActions={(t) => {
           const song = byId.get(t.id);
+          if (song?.missing) return missing.menu({ path: song.path, name: song.title });
           return song ? [...queueThem([song]), ...addTo([song.path])] : [];
         }}
       />
@@ -114,6 +117,7 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
   const playback = usePlayback();
   const addTo = useAddToPlaylist();
   const queueThem = useQueueActions();
+  const missing = useMissing();
   const tracks = album.tracks;
   const view = useMemo(
     () => toAlbum({ ...asLibAlbum(album), artist: album.various ? strings.music.variousArtists : album.artist }, tracks, cover),
@@ -142,6 +146,7 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
         actions={[...queueThem(tracks), ...addTo(tracks.map((t) => t.path))]}
         rowActions={(t) => {
           const song = tracks.find((x) => x.id === t.id);
+          if (song?.missing) return missing.menu({ path: song.path, name: song.title });
           return song ? [...queueThem([song]), ...addTo([song.path])] : [];
         }}
       />

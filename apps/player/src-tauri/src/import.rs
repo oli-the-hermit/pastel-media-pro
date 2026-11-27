@@ -55,7 +55,7 @@ pub fn walk(root: &Path, stop: &AtomicBool, mut each: impl FnMut(OnDisk)) {
     }
 }
 
-fn kind_name(k: MediaKind) -> &'static str {
+pub fn kind_name(k: MediaKind) -> &'static str {
     match k {
         MediaKind::Audio => "audio",
         MediaKind::Video => "video",
@@ -747,7 +747,7 @@ fn process(app: &AppHandle, id: i64, place: Option<&Place>, files: Vec<OnDisk>) 
     Ok(out)
 }
 
-fn stat(path: &Path) -> Option<OnDisk> {
+pub fn stat(path: &Path) -> Option<OnDisk> {
     let meta = std::fs::metadata(path).ok()?;
     Some(OnDisk { path: path.to_path_buf(), kind: formats::kind_of(path)?, size: meta.len(), mtime: mtime_of(&meta) })
 }

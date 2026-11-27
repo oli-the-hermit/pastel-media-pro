@@ -159,6 +159,9 @@ fn dispatch(app: &AppHandle, queue: &Arc<Queue>, cmd: &str, args: &Value) -> Res
         "places_list" => to_value(import::places_list(app.clone())?),
         "places_rescan" => to_value(import::places_rescan(app.clone(), arg(args, "placeId")?)?),
         "places_remove" => to_value(import::places_remove(app.clone(), arg(args, "placeId")?)?),
+        "file_relink" => to_value(crate::relink::file_relink(app.clone(), arg(args, "path")?, arg(args, "newPath")?, arg(args, "anyway")?)?),
+        "file_forget" => to_value(crate::relink::file_forget(app.clone(), arg(args, "path")?)?),
+        "place_relink" => to_value(crate::relink::place_relink(app.clone(), arg(args, "placeId")?, arg(args, "folder")?)?),
         "open_launched" => Ok(json!(false)),
         "open_take" => Ok(json!([])),
         // Playback and the window itself aren't part of the bridge (no window, no engine).

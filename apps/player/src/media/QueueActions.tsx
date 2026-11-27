@@ -14,7 +14,7 @@ export function useQueueActions(): (tracks: LibTrack[]) => MenuItem[] {
   const notify = useNotify();
   return useCallback(
     (tracks) => {
-      const songs = tracks.filter((t) => !t.unplayable);
+      const songs = tracks.filter((t) => !t.unplayable && !t.missing);
       if (songs.length === 0) return [];
       return [
         {
