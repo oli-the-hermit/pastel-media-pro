@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, EmptyState, Field, IconTrash, Select } from '@pastel-studio/react';
+import { Button, Field, IconTrash, Select } from '@pastel-studio/react';
 import { isDesktop } from '@pastel-studio/desktop';
 import { useNotify } from '../shell/notify';
 import { strings } from '../strings';
@@ -26,7 +26,7 @@ export function sizeOf(bytes: number): string {
 }
 
 /**
- * Settings → Storage: the pictures the app keeps (frames taken from your videos, art found beside them or online),
+ * Settings → Library, under the folders: the pictures the app keeps (frames taken from your videos, art found beside them or online),
  * how much room they may take, and Clear cache. Everything dropped can be made again; your own files are never touched.
  */
 export function StorageSettings() {
@@ -44,7 +44,8 @@ export function StorageSettings() {
       alive = false;
     };
   }, []);
-  if (!isDesktop()) return <EmptyState>{strings.storage.browserOnly}</EmptyState>;
+  // In a browser the folders' own note says the desktop app is needed.
+  if (!isDesktop()) return null;
   const caps = info && !CAPS.includes(info.capMb) ? [...CAPS, info.capMb].sort((a, b) => a - b) : CAPS;
   return (
     <div className="mp-settings">

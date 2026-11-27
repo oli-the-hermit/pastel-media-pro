@@ -309,7 +309,14 @@ body {
   gap: var(--ps-space-8);
 }
 
-/* Settings → Storage: how much the cache holds. */
+/* A settings tab made of two parts (Library: the folders, then the pictures kept). */
+.mp-settings-parts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-24);
+}
+
+/* Settings → Library: how much the cache holds. */
 .mp-storage-use {
   margin: 0;
   color: var(--ps-text-1);

@@ -39,9 +39,11 @@ export function SettingsView() {
       {tab === 'general' ? (
         <GeneralSettings />
       ) : tab === 'library' ? (
-        <LibraryFoldersSettings />
-      ) : tab === 'storage' ? (
-        <StorageSettings />
+        // The folders, then the pictures kept of what is in them
+        <div className="mp-settings-parts">
+          <LibraryFoldersSettings />
+          <StorageSettings />
+        </div>
       ) : tab === 'online' ? (
         <OnlineSettings />
       ) : (

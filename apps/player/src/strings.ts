@@ -105,7 +105,6 @@ export const strings = {
     tabs: {
       general: { label: 'General' },
       library: { label: 'Library' },
-      storage: { label: 'Storage' },
       online: { label: 'Online' },
       playback: { label: 'Playback', empty: 'How music and videos play will be set here.' },
       subtitles: { label: 'Subtitles', empty: 'How subtitles look and which languages come first will be set here.' },
