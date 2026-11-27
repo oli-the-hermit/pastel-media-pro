@@ -23,6 +23,8 @@ export interface LibTrack {
   path: string;
   /** The file has tags but no audio the engine can read. */
   unplayable: boolean;
+  /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
+  addedAt?: number;
 }
 
 export interface LibAlbum {
@@ -55,6 +57,8 @@ export interface LibVideo {
   /** Images in the library's cache (`usePoster`), from the art beside the file. */
   poster?: string | null;
   backdrop?: string | null;
+  /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
+  addedAt?: number;
 }
 
 export interface LibSeries {
@@ -146,6 +150,12 @@ export const canAddFolders = () => isDesktop();
 
 const covers = new Map<string, Promise<string | undefined>>();
 
+/** An album's cover from the desktop app, asked for once per album. */
+function loadCover(albumId: string): Promise<string | undefined> {
+  if (!covers.has(albumId)) covers.set(albumId, invoke<string | null>('library_cover', { albumId }).then((c) => c ?? undefined, () => undefined));
+  return covers.get(albumId)!;
+}
+
 /** An album's cover: a data URL from the desktop app (fetched once per album), or the dev server's URL. */
 export function useCover(albumId: string): string | undefined {
   const [cover, setCover] = useState<string | undefined>();
@@ -154,9 +164,13 @@ export function useCover(albumId: string): string | undefined {
       setCover(webCovers.get(albumId));
       return;
     }
+    // Nothing to show a cover of (the songs without an album)
+    if (!albumId) {
+      setCover(undefined);
+      return;
+    }
     let alive = true;
-    if (!covers.has(albumId)) covers.set(albumId, invoke<string | null>('library_cover', { albumId }).then((c) => c ?? undefined, () => undefined));
-    void covers.get(albumId)!.then((c) => alive && setCover(c));
+    void loadCover(albumId).then((c) => alive && setCover(c));
     return () => {
       alive = false;
     };
@@ -164,7 +178,34 @@ export function useCover(albumId: string): string | undefined {
   return cover;
 }
 
+/** Several albums' covers at once (a playlist's songs come from many albums), by album id; only the ones that have one. */
+export function useCovers(albumIds: readonly string[]): Record<string, string> {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const wanted = albumIds.join('|');
+  useEffect(() => {
+    const ids = wanted ? wanted.split('|') : [];
+    if (!isDesktop()) {
+      setUrls(Object.fromEntries(ids.flatMap((id) => (webCovers.has(id) ? [[id, webCovers.get(id)!]] : []))));
+      return;
+    }
+    let alive = true;
+    for (const id of ids) {
+      void loadCover(id).then((c) => alive && c && setUrls((known) => (known[id] === c ? known : { ...known, [id]: c })));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [wanted]);
+  return urls;
+}
+
 const images = new Map<string, Promise<string | undefined>>();
+
+/** An image of the library's cache, asked for once. */
+function loadImage(hash: string): Promise<string | undefined> {
+  if (!images.has(hash)) images.set(hash, invoke<string | null>('library_image', { hash }).then((c) => c ?? undefined, () => undefined));
+  return images.get(hash)!;
+}
 
 /** A poster or backdrop from the library's image cache (made once by the import), or nothing. */
 export function usePoster(hash: string | null | undefined): string | undefined {
@@ -173,13 +214,29 @@ export function usePoster(hash: string | null | undefined): string | undefined {
     setUrl(undefined);
     if (!hash || !isDesktop()) return;
     let alive = true;
-    if (!images.has(hash)) images.set(hash, invoke<string | null>('library_image', { hash }).then((c) => c ?? undefined, () => undefined));
-    void images.get(hash)!.then((u) => alive && setUrl(u));
+    void loadImage(hash).then((u) => alive && setUrl(u));
     return () => {
       alive = false;
     };
   }, [hash]);
   return url;
+}
+
+/** Several images of the cache at once (Home's banner), in the order asked; nothing where there is none. */
+export function usePosters(hashes: readonly (string | null | undefined)[]): (string | undefined)[] {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const wanted = hashes.map((h) => h ?? '').join('|');
+  useEffect(() => {
+    if (!isDesktop()) return;
+    let alive = true;
+    for (const hash of wanted.split('|')) {
+      if (hash) void loadImage(hash).then((u) => alive && u && setUrls((known) => (known[hash] === u ? known : { ...known, [hash]: u })));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [wanted]);
+  return hashes.map((h) => (h ? urls[h] : undefined));
 }
 
 const openedCovers = new Map<string, Promise<string | undefined>>();

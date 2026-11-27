@@ -30,6 +30,26 @@ export const strings = {
       series: { label: 'Series', empty: 'Your series will live here, season by season.' },
       clips: { label: 'Clips', empty: 'Music videos, recordings and other short videos will live here.' },
     },
+    search: 'Search films, series, clips',
+    /** The headings in the search's suggestions, and over what a search finds on Home. */
+    kinds: { film: 'Films', series: 'Series', clip: 'Clips' },
+    watchLabel: 'Show',
+    watch: { all: 'All', unwatched: 'Not watched', progress: 'In progress', watched: 'Watched' },
+    sorts: { added: 'Recently added', watched: 'Recently watched', az: 'A–Z', za: 'Z–A', year: 'Year' },
+    nothingFound: (query: string) => (query ? `Nothing found for “${query}”.` : 'Nothing here matches this filter.'),
+    home: {
+      banner: 'Suggested for you',
+      reasons: { continue: 'Continue watching', new: 'New in your library', unwatched: 'Not watched yet' },
+      continuing: 'Continue watching',
+      newFilms: 'Recently added films',
+      newSeries: 'Recently added series',
+      unwatched: 'Not watched yet',
+      details: 'Details',
+    },
+  },
+  /** Every list's sort menu: its name, with the order in use. */
+  lists: {
+    sortedBy: (order: string) => `Sort by: ${order}`,
   },
   topBar: {
     openMini: 'Open mini player',
@@ -182,21 +202,80 @@ export const strings = {
   music: {
     albums: 'Albums',
     allAlbums: 'All albums',
+    allArtists: 'All artists',
     unknownArtist: 'Unknown artist',
+    variousArtists: 'Various artists',
     noAlbum: 'Songs without an album',
+    viewsLabel: 'Music views',
+    views: { songs: 'Songs', albums: 'Albums', artists: 'Artists' },
+    search: 'Search songs, albums, artists',
+    /** The headings in the search's suggestions. */
+    kinds: { song: 'Songs', album: 'Albums', artist: 'Artists' },
+    sorts: { played: 'Recently played', added: 'Recently added', az: 'A–Z', za: 'Z–A' },
+    nothingFound: (query: string) => (query ? `Nothing found for “${query}”.` : 'Nothing here yet.'),
+    artist: 'Artist',
+    artistFacts: (albums: number, songs: number) =>
+      [albums > 0 ? (albums === 1 ? '1 album' : `${albums} albums`) : '', songs === 1 ? '1 song' : `${songs.toLocaleString()} songs`].filter(Boolean).join(' · '),
+    shuffle: 'Shuffle',
     unplayableMark: '(no audio)',
     albumSubtitle: (artist: string, songs: number) => `${artist} · ${songs === 1 ? '1 song' : `${songs} songs`}`,
+  },
+  playlists: {
+    new: 'New playlist',
+    /** In a menu, where it opens a dialog. */
+    newMenu: 'New playlist…',
+    newTitle: 'New playlist',
+    editTitle: 'Rename playlist',
+    name: 'Name',
+    description: 'Description',
+    optional: 'Optional',
+    create: 'Create',
+    save: 'Save',
+    rename: 'Rename',
+    delete: 'Delete playlist',
+    deleteTitle: 'Delete playlist',
+    deleteMessage: (name: string) => `Delete “${name}”? Its songs stay in your library.`,
+    all: 'All playlists',
+    search: 'Search playlists',
+    sorts: { changed: 'Recently changed', az: 'A–Z', za: 'Z–A' },
+    songs: (n: number) => (n === 1 ? '1 song' : `${n.toLocaleString()} songs`),
+    addTo: 'Add to playlist',
+    added: (n: number, name: string) => (n === 1 ? `Added to “${name}”.` : `${n.toLocaleString()} songs added to “${name}”.`),
+    already: (name: string) => `Already in “${name}”.`,
+    remove: 'Remove from this playlist',
+    /** The search on a playlist's page: it finds songs of the library and adds the one picked. */
+    addSongs: 'Add songs: search your library',
+    emptyPlaylist: 'No songs yet. Search above to add some, or use “Add to playlist” on a song or an album in Music.',
+    failed: (reason: string) => `This could not be saved: ${reason}`,
   },
   videos: {
     allSeries: 'All series',
     allMovies: 'All films',
+    allClips: 'All clips',
+    /** Back, from a title opened on Home or from a search there. */
+    backHome: 'Home',
     film: 'Film',
+    clip: 'Clip',
     series: 'Series',
     unknownSeries: 'Unknown series',
     play: 'Play',
-    /** The series' Play button: the first episode of the season shown. */
+    /** A film left part-way: its Play button says where it picks up, and Start over sits beside it. */
+    resume: (time: string) => `Resume at ${time}`,
+    startOver: 'Start over',
+    /** On Home, where the time it picks up at is beside it. */
+    resumeShort: 'Resume',
+    /** An episode as a tile's second line says it: "S1 E3". */
+    episodeShort: (season: number | null, episode: number | null) =>
+      [season != null && season > 0 ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' '),
+    /** The series' Play button: the episode it goes on with, or the first one of the season shown. */
     playFrom: (season: number | null, episode: number | null) =>
       `Play ${[season != null ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' ')}`.trim(),
+    /** The same button for an episode left part-way. */
+    resumeFrom: (season: number | null, episode: number | null) =>
+      `Resume ${[season != null ? `S${season}` : '', episode != null ? `E${episode}` : ''].filter(Boolean).join(' ')}`.trim(),
+    /** How much of a video is left, on its tile or row: "12 min left". */
+    left: (time: string) => `${time} left`,
+    watched: 'Watched',
     season: (n: number | null) => (n == null ? 'Episodes' : n === 0 ? 'Specials' : `Season ${n}`),
     seasons: (n: number) => (n === 1 ? '1 season' : `${n} seasons`),
     seasonLabel: 'Season',

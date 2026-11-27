@@ -7,7 +7,6 @@
   "author": "San Milano",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./styles.css": "./src/media-ui.css"
+    ".": "./src/index.ts"
   }
 }

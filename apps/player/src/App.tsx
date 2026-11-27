@@ -10,6 +10,8 @@ import { MusicPage } from './media/MusicPage';
 import { pickFiles, useOpenedFiles } from './media/opened';
 import { PlaybackProvider, usePlayback } from './media/playback';
 import { PlayerPage, useNowPlayingTrack } from './media/PlayerPage';
+import { PlaylistDialogs } from './media/PlaylistActions';
+import { PlaylistsPage } from './media/PlaylistsPage';
 import { StreamingPage } from './media/StreamingPage';
 import { rememberLastPage, useSettings } from './settings';
 import { accountViews } from './shell/accountViews';
@@ -38,6 +40,7 @@ function PageContent({ page, library, onOpenFiles, onLeaveVideo }: PageContentPr
   if ((page === 'music' || page === 'streaming') && library && isEmptyLibrary(library)) return <NoFolders preset={page === 'music' ? 'music' : 'movies'} />;
   if (page === 'streaming') return <StreamingPage library={library} />;
   if (page === 'music') return library ? <MusicPage library={library} /> : <EmptyState>{strings.library.reading}</EmptyState>;
+  if (page === 'playlists') return library ? <PlaylistsPage library={library} /> : <EmptyState>{strings.library.reading}</EmptyState>;
   return <EmptyState>{strings.pages[page].empty}</EmptyState>;
 }
 
@@ -67,7 +70,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
   const playback = usePlayback();
   const pages = visiblePages(settings);
   // Read the first time a page that shows it opens; never at launch (D16), never for a hidden Streaming tab.
-  const library = useLibrary(page === 'music' || (page === 'streaming' && settings.showStreaming));
+  const library = useLibrary(page === 'music' || page === 'playlists' || (page === 'streaming' && settings.showStreaming));
   const exit = { label: strings.account.switchProfile, icon: <IconLogOut />, onSelect: () => showToast(strings.account.switchProfileLater, 'info') };
 
   const go = useCallback((key: PageKey) => {
@@ -137,6 +140,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
   return (
     <NotifyContext.Provider value={showToast}>
       <ImportProvider>
+      <PlaylistDialogs>
       <AppShell
         surface={video && page === 'player' && playback.pictureReady ? 'transparent' : 'solid'}
         nav={
@@ -176,6 +180,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
           </AppShellPage>
         ))}
       </AppShell>
+      </PlaylistDialogs>
       </ImportProvider>
     </NotifyContext.Provider>
   );
@@ -189,7 +194,7 @@ interface AppProps {
 /** The main window: the shared shell from the design system, around the player and the media pages. */
 export function App({ launchedWithFiles = false }: AppProps) {
   return (
-    <PlaybackProvider>
+    <PlaybackProvider greet={!launchedWithFiles}>
       <Main launchedWithFiles={launchedWithFiles} />
     </PlaybackProvider>
   );

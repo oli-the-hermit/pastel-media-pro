@@ -157,6 +157,12 @@ body {
   overflow-wrap: anywhere;
 }
 
+.mp-title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ps-space-8);
+}
+
 .mp-title-facts {
   display: flex;
   flex-wrap: wrap;
@@ -319,8 +325,15 @@ body {
   white-space: nowrap;
 }
 
-/* A media page's first line, the same on every page: what changes the view (views, later search and filters) at
-   the start, what acts on the library (Add a folder, Add files) at the end, against the right edge. */
+/* A media page's controls, the same on every page, in two lines (ux.md §6). Each kind of control has a shape of
+   its own, so they are told apart at a glance:
+     first   the search, the one field, across the line; at its end what acts on the library, as bare icons
+     second  the choices that filter the list, as chips, at the start; the sort, a quiet menu, at the end */
+.mp-page-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+}
 .mp-page-head {
   display: flex;
   flex-wrap: wrap;
@@ -328,8 +341,72 @@ body {
   justify-content: space-between;
   gap: var(--ps-space-12);
 }
-.mp-page-head > .mp-add {
-  margin-left: auto;
+.mp-page-head > .mp-search {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.mp-add--icons {
+  gap: var(--ps-space-2);
+  margin-inline-start: auto;
+}
+/* The sort: the order in use as plain text with a chevron, no field around it. */
+.mp-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ps-space-6);
+  height: var(--ps-icon-button-size-sm);
+  margin-inline-start: auto;
+  padding: 0 var(--ps-space-8) 0 var(--ps-space-12);
+  border: none;
+  border-radius: var(--ps-radius-md);
+  background: none;
+  color: var(--ps-text-2);
+  font: inherit;
+  font-size: var(--ps-font-size-sm);
+  font-weight: var(--ps-font-weight-semibold);
+  cursor: pointer;
+  transition: background var(--ps-dur-2) var(--ps-ease-standard), color var(--ps-dur-2) var(--ps-ease-standard);
+}
+.mp-sort:hover,
+.mp-sort.is-active {
+  background: var(--ps-surface-2);
+  color: var(--ps-text-1);
+}
+
+/* Songs as a list, on a card like an album's. */
+.mp-songs {
+  padding: var(--ps-space-16);
+  border-radius: var(--ps-radius-3xl);
+  background: var(--ps-surface-1);
+}
+.mp-songs-more {
+  height: var(--ps-space-24);
+}
+
+/* A dialog's form (a playlist's name and description): its fields, then its buttons. */
+.mp-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-16);
+}
+
+/* Streaming's Home: the banner, then its rows. */
+.mp-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-32);
+  min-width: 0;
+}
+
+/* A part of a page under its own small heading (an artist's albums, their loose songs). */
+.mp-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-12);
+}
+.mp-title-poster--round {
+  aspect-ratio: 1;
+  border-radius: var(--ps-radius-pill);
 }
 
 .mp-add {
@@ -495,4 +572,30 @@ body {
 /* The import queue's card clears the now-playing bar. */
 .mp-queue {
   --ps-transfer-card-bottom: calc(var(--ps-space-16) * 5);
+}
+
+/* The player with its queue open: the song, and the queue beside it; under it in a narrow window. The queue is
+   as tall as the window leaves it and scrolls inside. */
+.mp-player.has-queue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ps-space-24);
+}
+.mp-player.has-queue > :first-child {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.mp-player-queue {
+  flex: none;
+  max-height: 72vh;
+}
+@media (max-width: 900px) {
+  .mp-player.has-queue {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mp-player-queue {
+    width: 100%;
+    max-height: 50vh;
+  }
 }

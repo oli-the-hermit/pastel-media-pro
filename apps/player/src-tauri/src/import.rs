@@ -417,7 +417,7 @@ pub fn read_file(f: &OnDisk, root: Option<&Path>, cache: &Path, counts: &FolderC
     let mut rec = Record { path: path_string(&f.path), size: f.size, mtime: f.mtime, fp: Some(fp), kind: f.kind, track: None, video: None };
     match f.kind {
         MediaKind::Audio => {
-            rec.track = Some(library::read_track(&f.path).ok_or("its tags and audio can't be read")?);
+            rec.track = Some(library::read_track(&f.path).ok_or("it can't be opened, or it is empty")?);
         }
         MediaKind::Video => {
             let rel = rel_of(root, &f.path);

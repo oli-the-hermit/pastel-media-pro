@@ -42,7 +42,8 @@ mod mpv {
     unsafe impl Send for Mpv {}
 
     impl Mpv {
-        pub fn new(dll: &std::path::Path, wid: isize) -> Result<Mpv, String> {
+        /// With a window to draw into; or with none, which plays without picture or sound (for the tests).
+        pub fn new(dll: &std::path::Path, wid: Option<isize>) -> Result<Mpv, String> {
             unsafe {
                 let lib = Library::new(dll).map_err(|e| format!("could not load {}: {e}", dll.display()))?;
                 let create: unsafe extern "C" fn() -> *mut c_void = *lib.get(b"mpv_create\0").map_err(|e| e.to_string())?;
@@ -63,7 +64,17 @@ mod mpv {
                     let (k, v) = (CString::new(k).unwrap(), CString::new(v).unwrap());
                     set_opt(h, k.as_ptr(), v.as_ptr())
                 };
-                opt("wid", &wid.to_string());
+                match wid {
+                    Some(wid) => {
+                        opt("wid", &wid.to_string());
+                        opt("vo", "gpu-next");
+                        opt("gpu-context", "d3d11");
+                    }
+                    None => {
+                        opt("vo", "null");
+                        opt("ao", "null");
+                    }
+                }
                 // PASTEL_MPV_LOG=<file> writes mpv's own log, for diagnosing a file that will not play.
                 if let Ok(log) = std::env::var("PASTEL_MPV_LOG") {
                     opt("log-file", &log);
@@ -73,8 +84,6 @@ mod mpv {
                     opt("mute", "yes");
                 }
                 for (k, v) in [
-                    ("vo", "gpu-next"),
-                    ("gpu-context", "d3d11"),
                     ("hwdec", "auto-safe"),
                     ("keep-open", "yes"),
                     ("idle", "yes"),
@@ -127,6 +136,16 @@ mod mpv {
             let mut ptrs: Vec<*const c_char> = owned.iter().map(|c| c.as_ptr()).collect();
             ptrs.push(std::ptr::null());
             unsafe { (self.command)(self.h, ptrs.as_ptr()) }
+        }
+
+        /// Loads a file: playing or paused, from its start or from `start` seconds in (for this file only).
+        pub fn load(&self, path: &str, start: Option<f64>, paused: bool) -> c_int {
+            self.set("pause", if paused { "yes" } else { "no" });
+            match start {
+                // loadfile <file> <flags> <index> <options>, as mpv 0.38 and later take it
+                Some(s) if s > 0.0 => self.cmd(&["loadfile", path, "replace", "-1", &format!("start={s:.3}")]),
+                _ => self.cmd(&["loadfile", path]),
+            }
         }
 
         pub fn set(&self, k: &str, v: &str) -> c_int {
@@ -222,7 +241,7 @@ fn ensure(app: &AppHandle, engine: &Engine) -> Result<(), String> {
     let dll = dll_candidates(app).into_iter().find(|p| p.is_file()).ok_or("libmpv-2.dll was not found")?;
     let win = app.get_webview_window("main").ok_or("no main window")?;
     let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as isize;
-    let mpv = mpv::Mpv::new(&dll, hwnd)?;
+    let mpv = mpv::Mpv::new(&dll, Some(hwnd))?;
     let (last, failed) = (engine.last_path.clone(), engine.load_error.clone());
     mpv.watch_errors(move |reason| {
         let mut slot = failed.lock().unwrap();
@@ -258,9 +277,15 @@ pub async fn engine_load(
     engine: State<'_, Engine>,
     opened: State<'_, crate::open::OpenState>,
     path: String,
+    start: Option<f64>,
+    paused: Option<bool>,
 ) -> Result<(), String> {
     if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&app, &path) {
-        return Err("this file is outside the library".into());
+        // The library is only opened once a page shows it. The song the player greets with is asked for before
+        // that: open the library, then look again.
+        if crate::library::ensure_ready(&app).is_err() || !crate::library::allowed(&app, &path) {
+            return Err("this file is outside the library".into());
+        }
     }
     #[cfg(windows)]
     {
@@ -268,10 +293,7 @@ pub async fn engine_load(
             return Err(e);
         }
         *engine.last_path.lock().unwrap() = path.clone();
-        let rc = engine.mpv.lock().unwrap().as_ref().map_or(-1, |m| {
-            m.set("pause", "no");
-            m.cmd(&["loadfile", &path])
-        });
+        let rc = engine.mpv.lock().unwrap().as_ref().map_or(-1, |m| m.load(&path, start, paused.unwrap_or(false)));
         if rc < 0 {
             return Err(format!("loadfile failed ({rc})"));
         }
@@ -288,7 +310,7 @@ pub async fn engine_load(
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, engine, opened, library);
+        let _ = (app, engine, opened, start, paused);
         Err("playback is Windows-only for now".into())
     }
 }
@@ -347,5 +369,75 @@ pub async fn engine_status(engine: State<'_, Engine>) -> Result<Value, String> {
     {
         let _ = load_error;
         Ok(json!({ "ready": false, "error": error }))
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::mpv::Mpv;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    /// Eight seconds of silence as a WAV file (8 kHz, mono, 8 bit).
+    fn silence() -> PathBuf {
+        let data = vec![0x80u8; 64_000];
+        let mut wav = b"RIFF".to_vec();
+        wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        for v in [16u32, 0x0001_0001, 8000, 8000, 0x0008_0001] {
+            wav.extend_from_slice(&v.to_le_bytes());
+        }
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&data);
+        let path = std::env::temp_dir().join(format!("pmp-engine-{}.wav", std::process::id()));
+        std::fs::write(&path, wav).unwrap();
+        path
+    }
+
+    fn wait_for(m: &Mpv, what: impl Fn(&Mpv) -> bool) -> bool {
+        let until = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < until {
+            if what(m) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        false
+    }
+    fn pos(m: &Mpv) -> Option<f64> {
+        m.get("time-pos")?.parse().ok()
+    }
+
+    /// The real engine, with no window and no sound. Skipped where the DLL isn't (it is not in the repository).
+    #[test]
+    fn loads_at_a_position_and_paused_when_asked() {
+        let dll = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../lib/libmpv-2.dll"));
+        if !dll.is_file() {
+            eprintln!("skipped: no libmpv-2.dll in lib/");
+            return;
+        }
+        let m = Mpv::new(&dll, None).expect("the engine starts without a window");
+        let file = silence();
+        let path = file.to_string_lossy().to_string();
+
+        // Paused, three seconds in: it waits there
+        assert!(m.load(&path, Some(3.0), true) >= 0);
+        assert!(wait_for(&m, |m| pos(m).is_some()), "the file loads");
+        std::thread::sleep(Duration::from_millis(400));
+        let at = pos(&m).unwrap();
+        assert!((2.8..=3.2).contains(&at), "paused at the asked position, was at {at}");
+        assert_eq!(m.get("pause").as_deref(), Some("yes"));
+
+        // The next file plays from its start: the position was for that one load
+        assert!(m.load(&path, None, false) >= 0);
+        assert!(wait_for(&m, |m| pos(m).is_some_and(|p| p > 0.2 && p < 2.5)), "plays from the start, at {:?}", pos(&m));
+        assert_eq!(m.get("pause").as_deref(), Some("no"));
+
+        // Playing, from a position
+        assert!(m.load(&path, Some(5.0), false) >= 0);
+        assert!(wait_for(&m, |m| pos(m).is_some_and(|p| p >= 5.0)), "plays from five seconds, at {:?}", pos(&m));
+        m.cmd(&["stop"]);
+        std::fs::remove_file(file).ok();
     }
 }

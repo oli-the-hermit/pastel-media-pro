@@ -1,10 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Button, EmptyState, IconFolderOpen, MusicPlayer, TextButton, type Track } from '@pastel-studio/react';
+import { useEffect, useMemo, useState } from 'react';
+import { Button, EmptyState, IconFolderOpen, MusicPlayer, PlayQueue, TextButton, type Track } from '@pastel-studio/react';
 import { isDesktop } from '@pastel-studio/desktop';
 import { strings } from '../strings';
 import { toTrack, useCover, useOpenedCover, type Library } from './library';
 import { usePlayback, type PlayFailure } from './playback';
+import { useRemembered } from './remember';
+import { lastCover, saveLastCover } from './session';
 import { VideoView } from './VideoView';
+
+/** How many songs the queue beside the player lists after the one playing, and before it. */
+const UP_NEXT = 100;
+const PLAYED = 50;
 
 /**
  * The playing song as the design system's Track, with its album's cover when the library knows it, or, for a song
@@ -15,7 +21,12 @@ export function useNowPlayingTrack(library: Library | null): Track | undefined {
   const albumId = library?.albums.find((a) => current && a.trackIds.includes(current.id))?.id ?? '';
   const albumCover = useCover(albumId);
   const fileCover = useOpenedCover(!albumId && current ? current.path : '');
-  const cover = albumCover ?? fileCover;
+  // The song the player greets with shows the cover kept from last time, until the library is read.
+  const path = current?.path ?? '';
+  const kept = useMemo(() => lastCover(path), [path]);
+  const found = albumCover ?? fileCover;
+  useEffect(() => saveLastCover(path, found), [path, found]);
+  const cover = found ?? kept;
   return useMemo(() => (current ? toTrack(current, cover) : undefined), [current, cover]);
 }
 
@@ -54,16 +65,21 @@ interface PlayerPageProps {
 }
 
 /**
- * The player, the default start page (D15, D16): the playing video, the playing song, or, with nothing playing,
- * a calm empty page that takes a drop or opens files.
+ * The player, the default start page (D15, D16): the playing video; the playing song with its queue beside it
+ * (also the song of the last session, paused where it was left: the player greets with it); or, with nothing
+ * playing, a calm empty page that takes a drop or opens files.
  */
 export function PlayerPage({ library, onOpenFiles, onLeaveVideo }: PlayerPageProps) {
   const playback = usePlayback();
   const track = useNowPlayingTrack(library);
+  const [queueOpen, setQueueOpen] = useRemembered<boolean>('pastelmedia_queue_open', true, (v) => typeof v === 'boolean');
+  const { queue, index } = playback;
+  const upNext = useMemo(() => queue.slice(index + 1, index + 1 + UP_NEXT).map((t) => toTrack(t)), [queue, index]);
+  const played = useMemo(() => queue.slice(Math.max(0, index - PLAYED), Math.max(0, index)).reverse().map((t) => toTrack(t)), [queue, index]);
   if (playback.video) return <VideoView onBack={onLeaveVideo} />;
   if (track) {
     return (
-      <div className="mp-player">
+      <div className={queueOpen ? 'mp-player has-queue' : 'mp-player'}>
         <MusicPlayer
           media={playback.engine}
           track={track}
@@ -71,7 +87,23 @@ export function PlayerPage({ library, onOpenFiles, onLeaveVideo }: PlayerPagePro
           onNext={playback.next}
           hasPrevious={playback.index > 0}
           hasNext={playback.index < playback.queue.length - 1}
+          queueOpen={queueOpen}
+          onQueueToggle={() => setQueueOpen(!queueOpen)}
         />
+        {queueOpen ? (
+          <PlayQueue
+            className="mp-player-queue"
+            current={track}
+            playing={playback.engine.playing}
+            upNext={upNext}
+            history={played}
+            onPlay={(t) => {
+              if (t.id === track.id) playback.engine.toggle();
+              else playback.playTracks(queue, queue.findIndex((x) => x.id === t.id));
+            }}
+            onClose={() => setQueueOpen(false)}
+          />
+        ) : undefined}
       </div>
     );
   }

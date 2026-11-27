@@ -6,6 +6,8 @@ pub mod db;
 mod engine;
 pub mod filters;
 mod formats;
+pub mod history;
+pub mod playlists;
 pub mod import;
 pub mod library;
 pub mod matching;
@@ -50,6 +52,14 @@ pub fn run() {
             library::library_get,
             library::library_cover,
             library::library_image,
+            history::history_record,
+            history::history_list,
+            history::history_get,
+            playlists::playlists_list,
+            playlists::playlist_create,
+            playlists::playlist_update,
+            playlists::playlist_delete,
+            playlists::playlist_set,
             import::import_pick_folder,
             import::import_pick_files,
             import::import_discover,

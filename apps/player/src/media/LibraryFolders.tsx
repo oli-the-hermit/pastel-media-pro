@@ -7,10 +7,26 @@ import { isOver, places, removePlace, rescan, useJobs, type Place } from './impo
 import { useImportFlow, type AddPreset } from './import/ImportFlow';
 import { canAddFolders } from './library';
 
-/** Add a folder and Add files, for a page's own kind of media. */
-export function AddButtons({ preset, primary = false }: { preset: AddPreset; primary?: boolean }) {
+/**
+ * Add a folder and Add files, for a page's own kind of media. Beside a page's search they are two bare icon
+ * buttons (`icons`), named by their tooltips: actions, not fields or choices, so they carry no shape of their own.
+ * Elsewhere they are written out; `primary` is for an empty page, whose one thing to do they are.
+ */
+export function AddButtons({ preset, primary = false, icons = false }: { preset: AddPreset; primary?: boolean; icons?: boolean }) {
   const flow = useImportFlow();
   if (!canAddFolders()) return null;
+  if (icons) {
+    return (
+      <div className="mp-add mp-add--icons">
+        <IconButton label={strings.library.add} surface={0} onClick={() => flow.addFolder(preset)}>
+          <IconFolderPlus size={20} />
+        </IconButton>
+        <IconButton label={strings.library.addFiles} surface={0} onClick={() => flow.addFiles(preset)}>
+          <IconFile size={20} />
+        </IconButton>
+      </div>
+    );
+  }
   return (
     <div className="mp-add">
       <Button variant={primary ? 'primary' : 'tonal'} size={primary ? 'md' : 'sm'} icon={<IconFolderPlus />} onClick={() => flow.addFolder(preset)}>

@@ -37,7 +37,8 @@ export interface EngineStatus {
 }
 
 export const engine = {
-  load: (path: string) => invoke<void>('engine_load', { path }),
+  /** Plays a file, from `start` seconds in when given (for that file only). */
+  load: (path: string, start?: number) => invoke<void>('engine_load', { path, start: start && start > 0 ? start : null }),
   command: (...args: string[]) => invoke<number>('engine_command', { args }),
   set: (name: string, value: string) => invoke<number>('engine_set', { name, value }),
   status: () => invoke<EngineStatus>('engine_status'),

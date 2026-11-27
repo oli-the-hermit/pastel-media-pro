@@ -43,6 +43,8 @@ pub struct LibTrack {
     pub path: String,
     /// Set when the file has tags but no audio the engine can read.
     pub unplayable: bool,
+    /// When it joined the library, in seconds since 1970; 0 for a file read without the database.
+    pub added_at: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -77,6 +79,9 @@ pub struct LibVideo {
     /// Images (`library_image`), from the art beside the file.
     pub poster: Option<String>,
     pub backdrop: Option<String>,
+    /// When it joined the library, in seconds since 1970. For a file read without the database (the web version's
+    /// test library): when it was last changed, which stands in for it.
+    pub added_at: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -214,13 +219,97 @@ fn number(tf: &TaggedFile, get: impl Fn(&Tag) -> Option<u32>) -> Option<u32> {
     tf.tags().iter().find_map(get)
 }
 
-/// One song's tags and length (cover art skipped), and its album artist; `None` if the file has no readable tags.
+/// An MP3's length in seconds without its tags: from the first frame's count of frames (a Xing or Info header)
+/// or else from its bitrate and the file's size. A fair guess for a song whose tags can't be read.
+fn mp3_seconds(path: &Path) -> Option<f64> {
+    use std::io::{Read, Seek, SeekFrom};
+    if !path.extension()?.to_string_lossy().eq_ignore_ascii_case("mp3") {
+        return None;
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let mut head = [0u8; 10];
+    f.read_exact(&mut head).ok()?;
+    // An ID3v2 tag says how long it is; one that lies (past the file's end) is not believed
+    let mut start = 0u64;
+    if &head[..3] == b"ID3" {
+        start = 10 + (((head[6] & 0x7f) as u64) << 21 | ((head[7] & 0x7f) as u64) << 14 | ((head[8] & 0x7f) as u64) << 7 | (head[9] & 0x7f) as u64);
+        if start >= len {
+            start = 0;
+        }
+    }
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = vec![];
+    f.take(128 * 1024).read_to_end(&mut buf).ok()?;
+    for i in 0..buf.len().saturating_sub(4) {
+        if buf[i] != 0xFF || buf[i + 1] & 0xE0 != 0xE0 {
+            continue;
+        }
+        let (version, layer) = ((buf[i + 1] >> 3) & 3, (buf[i + 1] >> 1) & 3);
+        let (bitrate, rate) = ((buf[i + 2] >> 4) as usize, ((buf[i + 2] >> 2) & 3) as usize);
+        if version == 1 || layer != 1 || bitrate == 0 || bitrate == 15 || rate == 3 {
+            continue;
+        }
+        let v1 = version == 3;
+        let kbps = if v1 { [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320][bitrate] } else { [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160][bitrate] };
+        let hz = [44100u32, 48000, 32000][rate] >> if v1 { 0 } else if version == 2 { 1 } else { 2 };
+        let samples = if v1 { 1152.0 } else { 576.0 };
+        let frame = &buf[i..(i + 200).min(buf.len())];
+        if let Some(x) = frame.windows(4).position(|w| w == b"Xing" || w == b"Info") {
+            if frame.len() >= x + 12 && frame[x + 7] & 1 == 1 {
+                let frames = u32::from_be_bytes([frame[x + 8], frame[x + 9], frame[x + 10], frame[x + 11]]) as f64;
+                if frames > 0.0 {
+                    return Some(frames * samples / hz as f64);
+                }
+            }
+        }
+        return Some((len - start - i as u64) as f64 * 8.0 / (kbps as f64 * 1000.0));
+    }
+    None
+}
+
+/// A song whose tags can't be read is still a song, and still in the library: named by its file ("07 - Title.mp3"
+/// gives its number too), in an album named after its folder. Its length is worked out for an MP3; for the rest it
+/// is filled in the first time the song plays.
+fn track_from_name(path: &Path) -> Option<(LibTrack, String)> {
+    if std::fs::metadata(path).ok()?.len() == 0 {
+        return None;
+    }
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let digits: String = stem.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let after = &stem[digits.len()..];
+    let rest = after.trim_start_matches([' ', '-', '.', '_']);
+    // "07 - Title", "07. Title", "07 Title"; not "99 Luftballons"
+    let marked = after.trim_start().starts_with(['-', '.', '_']) || (digits.starts_with('0') && after.starts_with(' '));
+    let (number, title) = if (1..=3).contains(&digits.len()) && marked && !rest.is_empty() { (digits.parse().ok(), rest.to_string()) } else { (None, stem.clone()) };
+    let album = path.parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let track = LibTrack {
+        id: String::new(),
+        title,
+        artist: String::new(),
+        album,
+        number,
+        disc: None,
+        year: None,
+        duration: mp3_seconds(path).unwrap_or(0.0),
+        path: path.to_string_lossy().to_string(),
+        unplayable: false,
+        added_at: 0,
+    };
+    Some((track, String::new()))
+}
+
+/// One song's tags and length (cover art skipped), and its album artist. A song whose tags can't be read is named by
+/// its file (`track_from_name`); `None` only for a file that can't be opened or is empty.
 pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
     let opts = ParseOptions::new().read_cover_art(false);
     let (tf, unplayable) = match Probe::open(path).ok()?.options(opts).read() {
         Ok(tf) => (tf, false),
         // Tags but no readable audio (a downloader left only the tag): keep it, flagged (S6).
-        Err(_) => (Probe::open(path).ok()?.options(ParseOptions::new().read_cover_art(false).read_properties(false).parsing_mode(ParsingMode::Relaxed)).read().ok()?, true),
+        Err(_) => match Probe::open(path).ok()?.options(ParseOptions::new().read_cover_art(false).read_properties(false).parsing_mode(ParsingMode::Relaxed)).read() {
+            Ok(tf) => (tf, true),
+            Err(_) => return track_from_name(path),
+        },
     };
     let stem = path.file_stem()?.to_string_lossy().to_string();
     let title = Some(text(&tf, |t| t.title().map(|s| s.to_string()))).filter(|s| !s.is_empty()).unwrap_or(stem);
@@ -237,6 +326,7 @@ pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
         duration: tf.properties().duration().as_secs_f64(),
         path: path.to_string_lossy().to_string(),
         unplayable,
+        added_at: 0,
     };
     Some((track, if album_artist.is_empty() { artist } else { album_artist }))
 }
@@ -260,11 +350,34 @@ pub fn assemble(roots: Vec<String>, audio: Vec<(LibTrack, String)>, mut videos: 
         groups.entry((album_artist.to_lowercase(), t.album.to_lowercase())).or_default().push(t);
     }
     let (mut lib, mut sources) = (Library { roots, ..Default::default() }, HashMap::new());
-    for (i, ((_, _), mut tracks)) in groups.into_iter().enumerate() {
+    // A compilation's songs carry their own artists and often no album artist, which made one album per artist.
+    // Groups that share a title and a folder are one album; it has no artist of its own (the page says "Various artists").
+    let mut merged: Vec<(Vec<LibTrack>, bool)> = vec![];
+    let mut home: HashMap<(String, String), usize> = HashMap::new();
+    for ((_, title), tracks) in groups {
+        let dirs: Vec<String> = tracks.iter().map(|t| Path::new(&t.path).parent().map(|d| d.to_string_lossy().to_lowercase()).unwrap_or_default()).collect();
+        let found = if title.is_empty() { None } else { dirs.iter().find_map(|d| home.get(&(title.clone(), d.clone())).copied()) };
+        let at = match found {
+            Some(at) => {
+                merged[at].0.extend(tracks);
+                merged[at].1 = true;
+                at
+            }
+            None => {
+                merged.push((tracks, false));
+                merged.len() - 1
+            }
+        };
+        for d in dirs {
+            home.entry((title.clone(), d)).or_insert(at);
+        }
+    }
+    for (i, (mut tracks, compilation)) in merged.into_iter().enumerate() {
         tracks.sort_by(|a, b| (a.disc, a.number, &a.path).cmp(&(b.disc, b.number, &b.path)));
         let id = format!("a{i}");
         let first = &tracks[0];
-        let artist = tracks.iter().map(|t| t.artist.clone()).find(|a| !a.is_empty()).unwrap_or_default();
+        let several = tracks.iter().any(|t| !t.artist.eq_ignore_ascii_case(&first.artist));
+        let artist = if compilation && several { String::new() } else { tracks.iter().map(|t| t.artist.clone()).find(|a| !a.is_empty()).unwrap_or_default() };
         let mut album = LibAlbum { id: id.clone(), title: first.album.clone(), artist, year: tracks.iter().find_map(|t| t.year), track_ids: vec![] };
         sources.insert(id.clone(), tracks.iter().map(|t| PathBuf::from(&t.path)).collect::<Vec<_>>());
         for (j, mut t) in tracks.into_iter().enumerate() {
@@ -329,13 +442,28 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
             }
         }
     }
-    let tracks = audio.iter().filter_map(|p| read_track(p)).collect();
+    // No database, so no day a file was added: when it was last changed stands in, and the pages that list
+    // "recently added" have something to order by. Lengths come from the quick probe, as in an import.
+    let changed = |p: &Path| {
+        let at = std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+        at.map_or(0, |d| d.as_secs() as i64)
+    };
+    let tracks = audio
+        .iter()
+        .filter_map(|p| {
+            read_track(p).map(|(mut t, artist)| {
+                t.added_at = changed(p);
+                (t, artist)
+            })
+        })
+        .collect();
     let videos = video
         .iter()
         .map(|(root, p)| {
             let rel = p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/");
             let parsed = parse::parse(&rel);
             let root_name = root.file_name().map(|n| n.to_string_lossy().into_owned());
+            let probed = crate::probe::probe(p).unwrap_or_default();
             VideoEntry {
                 video: LibVideo {
                     title: parsed.title.clone(),
@@ -345,6 +473,10 @@ pub fn scan_all(roots: &[PathBuf]) -> (Library, HashMap<String, Vec<PathBuf>>) {
                     episode_title: parsed.episode_title.clone(),
                     file_name: p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
                     path: p.to_string_lossy().to_string(),
+                    duration: probed.duration,
+                    width: probed.width,
+                    height: probed.height,
+                    added_at: changed(p),
                     ..Default::default()
                 },
                 kind: parsed.kind,
@@ -429,7 +561,7 @@ fn settle_folders(videos: &mut [VideoEntry]) {
                             }
                             e.kind = Kind::Episode;
                             e.video.episode = number.map(|(_, n, _)| n);
-                            e.video.season = e.video.season.or(season);
+                            e.video.season = if parse::special_of(&e.video.title).is_some() { Some(0) } else { e.video.season.or(season) };
                             e.show_folder = lead_folder.clone();
                             e.show_title = lead_title.clone();
                         }
@@ -486,7 +618,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
     let roots: Vec<String> = crate::import::places(conn).iter().map(|p| shown(&p.root)).collect();
     let audio = conn
         .prepare(
-            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem
+            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem, f.added_at
              FROM tracks t JOIN files f ON f.id = t.file_id WHERE f.missing = 0",
         )?
         .query_map([], |r| {
@@ -502,6 +634,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     year: r.get(8)?,
                     duration: r.get::<_, i64>(9)? as f64 / 1000.0,
                     unplayable: r.get::<_, Option<String>>(10)?.is_some(),
+                    added_at: r.get(11)?,
                 },
                 r.get::<_, String>(4)?,
             ))
@@ -511,7 +644,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .prepare(
             "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
                     o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
-                    o.title, m.title, m.year, m.overview, m.genres, p.path
+                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at
              FROM videos v JOIN files f ON f.id = v.file_id
              LEFT JOIN places p ON p.id = f.place_id
              LEFT JOIN overrides o ON o.file_id = f.id
@@ -556,6 +689,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     height: r.get(13)?,
                     overview: r.get(17)?,
                     genres: r.get::<_, Option<String>>(18)?.map(|g| g.split(", ").map(String::from).collect()).unwrap_or_default(),
+                    added_at: r.get(20)?,
                 },
                 kind,
                 show_folder: parse::show_folder_in(&rel, place_name.as_deref()),
@@ -844,5 +978,70 @@ mod tests {
         let (lib, _) = from_db(&conn).unwrap();
         assert_eq!(shows(&lib), vec![("Dark".to_string(), 2), ("Frieren".to_string(), 3)]);
         assert_eq!(lib.movies.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(), vec!["Pilot, the short film"]);
+    }
+
+    #[test]
+    fn specials_are_a_season_of_their_show() {
+        let lib = scanned(
+            "Anime",
+            &[
+                "DNA2/[motto] DNA2 - 01 (R2DVD 768x576 x264 Hi10p FLAC Chap).mkv",
+                "DNA2/[motto] DNA2 - 02 (R2DVD 768x576 x264 Hi10p FLAC Chap).mkv",
+                "DNA2/[motto] DNA2 OVA - 01 (R2DVD 768x576 x264 Hi10p FLAC Chap).mkv",
+                "DNA2/[motto] DNA2 OVA - 02 (R2DVD 768x576 x264 Hi10p FLAC Chap).mkv",
+                "DNA2/DNA2 OVA.mkv",
+            ],
+        );
+        assert_eq!(shows(&lib), vec![("DNA2".to_string(), 5)]);
+        let mut by_season: Vec<(Option<u32>, Option<u32>)> = lib.series[0].episodes.iter().map(|e| (e.season, e.episode)).collect();
+        by_season.sort();
+        assert_eq!(by_season, vec![(None, Some(1)), (None, Some(2)), (Some(0), None), (Some(0), Some(1)), (Some(0), Some(2))]);
+    }
+
+    #[test]
+    fn a_song_whose_tags_cant_be_read_is_added_by_its_file_name() {
+        let dir = std::env::temp_dir().join(format!("pmp-songs-{}", std::process::id())).join("Chants de guerre");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A tag header of a version no reader knows, then one MPEG-1 Layer III frame header (128 kbps, 44.1 kHz) and silence
+        let mut bytes = b"ID3\x09\x00\x00\x00\x00\x00\x0A".to_vec();
+        bytes.extend_from_slice(&[0u8; 10]);
+        bytes.extend_from_slice(&[0xFF, 0xFB, 0x90, 0x00]);
+        bytes.resize(16_000 * 10 + 24, 0);
+        let named = |name: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, &bytes).unwrap();
+            read_track(&p).map(|(t, _)| (t.title, t.number, t.album, t.unplayable, t.duration.round() as u32))
+        };
+        let album = "Chants de guerre".to_string();
+        assert_eq!(named("06 - Marche Funebre.mp3"), Some(("Marche Funebre".to_string(), Some(6), album.clone(), false, 10)));
+        assert_eq!(named("07 Untitled.mp3"), Some(("Untitled".to_string(), Some(7), album.clone(), false, 10)));
+        assert_eq!(named("99 Luftballons.mp3").map(|t| (t.0, t.1)), Some(("99 Luftballons".to_string(), None)));
+        // An empty file is no song
+        let empty = dir.join("00 - nothing.mp3");
+        std::fs::write(&empty, b"").unwrap();
+        assert_eq!(read_track(&empty).map(|(t, _)| t.title), None);
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_compilation_in_one_folder_is_one_album_with_no_artist_of_its_own() {
+        let track = |title: &str, artist: &str, album: &str, path: &str| {
+            (LibTrack { id: String::new(), title: title.into(), artist: artist.into(), album: album.into(), number: None, disc: None, year: None, duration: 1.0, path: path.into(), unplayable: false, added_at: 0 }, artist.to_string())
+        };
+        let (lib, _) = assemble(
+            vec![],
+            vec![
+                track("One", "Cecil Sharp Project", "English Folk", r"D:\Music\English Folk\01.mp3"),
+                track("Two", "Bella Hardy", "English Folk", r"D:\Music\English Folk\02.mp3"),
+                track("Three", "Bella Hardy", "English Folk", r"D:\Music\English Folk\03.mp3"),
+                // The same title elsewhere is another album; an album on two discs stays one, by its artist
+                track("Other", "Someone", "English Folk", r"D:\Music\Someone\English Folk\01.mp3"),
+                track("A", "Pentangle", "Basket of Light", r"D:\Music\Pentangle\Basket of Light\CD1\01.mp3"),
+                track("B", "Pentangle", "Basket of Light", r"D:\Music\Pentangle\Basket of Light\CD2\01.mp3"),
+            ],
+            vec![],
+        );
+        let albums: Vec<_> = lib.albums.iter().map(|a| (a.title.as_str(), a.artist.as_str(), a.track_ids.len())).collect();
+        assert_eq!(albums, vec![("English Folk", "", 3), ("Basket of Light", "Pentangle", 2), ("English Folk", "Someone", 1)]);
     }
 }

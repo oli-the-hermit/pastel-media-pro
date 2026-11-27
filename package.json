@@ -23,6 +23,7 @@
     "typecheck": "tsc -p apps/player --noEmit",
     "lint": "eslint .",
     "figma:screens": "node tools/figma-screens/build.mjs",
+    "ds:link": "node scripts/link-design-system.ts",
     "lint:css": "stylelint \"apps/*/src/**/*.css\" \"packages/*/src/**/*.css\" --allow-empty-input",
     "test": "vitest run",
     "visual:install": "node scripts/visual/browser.ts --install",
