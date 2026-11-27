@@ -139,6 +139,17 @@ fn start_over(app: &AppHandle) {
     *state.trouble.lock().unwrap() = None;
 }
 
+/// After a change in Settings: the pages are told, and the library is read here too, so lookups start at once and
+/// not only when a page that shows the library is opened.
+fn restart(app: &AppHandle) {
+    start_over(app);
+    announce(app);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = library::library_get(app).await;
+    });
+}
+
 fn run(ctx: &Ctx, job: &Job) -> Result<bool, Failure> {
     match job {
         Job::Movie { file_id, name, year } => lookup::movie(ctx, *file_id, name, *year),
@@ -316,8 +327,7 @@ pub async fn online_set_key(app: AppHandle, service: String, key: Option<String>
             conn.execute("DELETE FROM lookups WHERE state = 'matched'", []).map_err(|e| e.to_string())?;
         }
     }
-    start_over(&app);
-    announce(&app);
+    restart(&app);
     status(&app)
 }
 
@@ -326,8 +336,7 @@ pub async fn online_set_key(app: AppHandle, service: String, key: Option<String>
 pub async fn online_set_place(app: AppHandle, place_id: i64, enabled: bool) -> Result<Status, String> {
     library::ensure_ready(&app)?;
     app.state::<Db>().conn()?.execute("UPDATE places SET tmdb_enabled = ?2 WHERE id = ?1", params![place_id, enabled]).map_err(|e| e.to_string())?;
-    start_over(&app);
-    announce(&app);
+    restart(&app);
     status(&app)
 }
 
@@ -341,8 +350,7 @@ pub async fn online_set_language(app: AppHandle, language: String) -> Result<Sta
         online::set_setting(&conn, "metadata_language", language.trim()).map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM lookups WHERE state = 'matched'", []).map_err(|e| e.to_string())?;
     }
-    start_over(&app);
-    announce(&app);
+    restart(&app);
     status(&app)
 }
 
@@ -351,8 +359,7 @@ pub async fn online_set_language(app: AppHandle, language: String) -> Result<Sta
 pub async fn online_lookup_now(app: AppHandle) -> Result<Status, String> {
     library::ensure_ready(&app)?;
     app.state::<Db>().conn()?.execute("DELETE FROM lookups WHERE state IN ('none', 'failed')", []).map_err(|e| e.to_string())?;
-    start_over(&app);
-    announce(&app);
+    restart(&app);
     status(&app)
 }
 

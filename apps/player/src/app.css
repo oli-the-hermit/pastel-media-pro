@@ -266,6 +266,49 @@ body {
   color: var(--ps-warning);
 }
 
+/* Settings → Online: what goes online, a key that is saved, and the title picker ("Not the right title?"). */
+.mp-online-privacy {
+  margin: 0;
+  color: var(--ps-text-2);
+  max-width: 70ch;
+}
+
+.mp-online-saved {
+  margin: 0;
+  color: var(--ps-text-1);
+}
+
+.mp-online-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+}
+
+.mp-match-search {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ps-space-8);
+}
+
+.mp-match-search > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-match-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.mp-match-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ps-space-8);
+}
+
 /* Settings → Storage: how much the cache holds. */
 .mp-storage-use {
   margin: 0;

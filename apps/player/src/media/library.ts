@@ -61,6 +61,11 @@ export interface LibVideo {
   backdrop?: string | null;
   /** One frame of the video, small: an episode's picture. Made by the desktop app, behind everything else. */
   still?: string | null;
+  /** Out of ten, and whose it is: "IMDb", "TMDB", or nothing for one from a `.nfo`. */
+  rating?: number | null;
+  ratingSource?: string | null;
+  /** TMDB knows this title (found by itself, or picked by the person). */
+  matched?: boolean;
   /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
   addedAt?: number;
   /** The file isn't where the library has it ("Can't find this file"). */
@@ -80,6 +85,9 @@ export interface LibSeries {
   overview?: string | null;
   genres?: string[];
   rating?: number | null;
+  ratingSource?: string | null;
+  /** TMDB knows this series. */
+  matched?: boolean;
   episodes: LibVideo[];
 }
 

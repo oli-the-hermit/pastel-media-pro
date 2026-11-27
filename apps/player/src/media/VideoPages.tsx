@@ -7,7 +7,9 @@ import { strings } from '../strings';
 import { tier } from './import/filters';
 import { progressOf, resumePoint, useHistory, type Play } from './history';
 import { usePoster, usePosters, wantFrames, type LibSeries, type LibVideo } from './library';
+import { MatchDialog, type MatchTarget } from './MatchDialog';
 import { useMissing } from './missing';
+import { useOnline } from './online';
 import { usePlayback } from './playback';
 import { useRemembered } from './remember';
 import { isClip, leftOf, nextEpisode, seriesProgress, seriesState, videoName, videoState } from './streaming';
@@ -21,7 +23,7 @@ type TileRest = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title'>;
  * name and its facts, the synopsis, Play), then what it holds. The pictures and words come from the art and `.nfo`
  * beside the files; a title with no backdrop of its own gets a frame of its video.
  */
-function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, play, also, note, onBack, backLabel, children }: {
+function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, rating, match, play, also, note, onBack, backLabel, children }: {
   kind: string;
   title: string;
   facts: string[];
@@ -30,6 +32,10 @@ function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, play,
   poster?: string | null;
   backdrop?: string | null;
   overview?: string | null;
+  /** Out of ten, and whose it is ("IMDb", "TMDB"). */
+  rating?: { value: number; source?: string | null } | null;
+  /** What "Not the right title?" asks about; the link shows once a TMDB key is saved. */
+  match?: MatchTarget & { matched: boolean };
   play: { label: string; icon?: ReactNode; onClick: () => void } | null;
   /** A second action beside Play ("Start over"). */
   also?: { label: string; onClick: () => void } | null;
@@ -40,6 +46,9 @@ function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, play,
   children?: ReactNode;
 }) {
   const [image, behind] = usePosters([poster, backdrop]);
+  const online = useOnline();
+  const [matching, setMatching] = useState(false);
+  const score = rating ? rating.value.toFixed(1) : '';
   return (
     <div className="mp-page">
       <div>
@@ -52,6 +61,7 @@ function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, play,
         title={title}
         facts={facts}
         summary={overview ?? undefined}
+        rating={rating ? { value: score, source: rating.source ?? undefined, label: strings.videos.ratingLabel(rating.source, score) } : undefined}
         poster={image}
         backdrop={behind}
         // With a backdrop and no poster, the picture is the backdrop: no empty poster beside the name.
@@ -68,7 +78,13 @@ function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, play,
         }
       >
         {note ? <p className="mp-title-note">{note}</p> : undefined}
+        {match && online?.tmdbKey ? (
+          <div>
+            <TextButton onClick={() => setMatching(true)}>{match.matched ? strings.match.link : strings.match.linkFind}</TextButton>
+          </div>
+        ) : undefined}
       </TitleHeader>
+      {match ? <MatchDialog target={matching ? match : null} onClose={() => setMatching(false)} /> : undefined}
       {children}
     </div>
   );
@@ -186,6 +202,8 @@ export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; back
       poster={video.poster}
       backdrop={video.backdrop}
       overview={video.overview}
+      rating={video.rating ? { value: video.rating, source: video.ratingSource } : null}
+      match={video.missing ? undefined : { kind: 'movie', key: video.path, name: videoName(video), year: video.year, matched: !!video.matched }}
       play={
         video.missing
           ? { label: strings.missing.find, icon: <IconSearch />, onClick: () => missing.find({ path: video.path, name: videoName(video) }) }
@@ -284,6 +302,8 @@ export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; 
       poster={series.poster}
       backdrop={series.backdrop}
       overview={series.overview}
+      rating={series.rating ? { value: series.rating, source: series.ratingSource } : null}
+      match={series.key ? { kind: 'show', key: series.key, name: series.title, year: series.year, matched: !!series.matched } : undefined}
       play={
         first
           ? { label: (resumes ? strings.videos.resumeFrom : strings.videos.playFrom)(first.season, first.episode), onClick: () => playback.playVideo(first) }

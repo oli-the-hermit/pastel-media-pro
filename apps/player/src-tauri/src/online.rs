@@ -112,11 +112,22 @@ pub fn key(service: &str) -> Option<String> {
     entry(service).ok()?.get_password().ok().filter(|k| !k.is_empty())
 }
 
+/// A debug build that takes this service's key from the environment leaves the keychain alone.
+fn from_environment(service: &str) -> bool {
+    cfg!(debug_assertions) && std::env::var_os(format!("PASTEL_{}_KEY", service.to_uppercase())).is_some()
+}
+
 pub fn save_key(service: &str, key: &str) -> Result<(), String> {
+    if from_environment(service) {
+        return Ok(());
+    }
     entry(service)?.set_password(key.trim()).map_err(|_| "the key could not be saved in the keychain".to_string())
 }
 
 pub fn forget_key(service: &str) -> Result<(), String> {
+    if from_environment(service) {
+        return Ok(());
+    }
     match entry(service)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(_) => Err("the key could not be removed from the keychain".into()),
