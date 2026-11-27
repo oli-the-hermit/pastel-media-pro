@@ -71,6 +71,13 @@ impl Db {
         Db { conn: Mutex::new(Some(memory())), ..Default::default() }
     }
 
+    /// A second connection to the same database, for work that waits on something slow (the internet) and must not
+    /// keep the pages from the library meanwhile. SQLite's WAL lets it read and write beside the app's own.
+    pub fn another(&self) -> Result<Connection, String> {
+        let path = self.path.lock().unwrap().clone().ok_or("the library has no data folder")?;
+        open(&path).map_err(|e| format!("the library database could not be opened: {e}"))
+    }
+
     /// The connection, opened on the first call.
     pub fn conn(&self) -> Result<DbGuard<'_>, String> {
         let me = std::thread::current().id();

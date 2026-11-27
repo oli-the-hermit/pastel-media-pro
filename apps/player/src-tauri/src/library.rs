@@ -86,6 +86,11 @@ pub struct LibVideo {
     /// A frame was asked of this file already; not for the pages.
     #[serde(skip)]
     pub frames_tried: bool,
+    /// Out of ten, and whose it is: "IMDb" (through OMDb), "TMDB", or nothing for one from a `.nfo`.
+    pub rating: Option<f64>,
+    pub rating_source: Option<String>,
+    /// TMDB knows this title (found by itself, or picked by the person).
+    pub matched: bool,
     /// When it joined the library, in seconds since 1970. For a file read without the database (the web version's
     /// test library): when it was last changed, which stands in for it.
     pub added_at: i64,
@@ -108,6 +113,10 @@ pub struct LibSeries {
     pub overview: Option<String>,
     pub genres: Vec<String>,
     pub rating: Option<f64>,
+    /// "IMDb" (through OMDb), "TMDB", or nothing for a rating from `tvshow.nfo`.
+    pub rating_source: Option<String>,
+    /// TMDB knows this series.
+    pub matched: bool,
     pub episodes: Vec<LibVideo>,
     /// A frame was asked for its backdrop already and gave none; not for the pages.
     #[serde(skip)]
@@ -213,6 +222,14 @@ pub fn refresh_places(app: &AppHandle) {
     let places: Vec<PathBuf> = crate::import::places(&conn).into_iter().map(|p| p.root).chain(root()).collect();
     drop(conn);
     *app.state::<LibraryState>().folders.lock().unwrap() = places;
+}
+
+/// A series' episodes as the library in memory has them (file id, season, number), by the series' key.
+pub fn episodes_of(app: &AppHandle, key: &str) -> Vec<(i64, u32, u32)> {
+    let state = app.state::<LibraryState>();
+    let lib = state.library.lock().unwrap();
+    let Some(series) = lib.as_ref().and_then(|l| l.series.iter().find(|s| s.key == key)) else { return vec![] };
+    series.episodes.iter().filter_map(|e| Some((e.id.strip_prefix('v')?.parse().ok()?, e.season.unwrap_or(1), e.episode?))).collect()
 }
 
 /// Forgets the library built in memory but keeps the songs' covers: for a change that touches no file (a picture
@@ -686,11 +703,16 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .prepare(
             "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
                     o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
-                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at, f.missing, f.place_id, v.still, v.frames_tried
+                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at, f.missing, f.place_id, v.still, v.frames_tried,
+                    m.rating,
+                    (SELECT rating FROM metadata WHERE file_id = f.id AND source = 'omdb'),
+                    (SELECT rating FROM metadata WHERE file_id = f.id AND source = 'tmdb'),
+                    (SELECT external_id FROM metadata WHERE file_id = f.id AND source = 'tmdb')
              FROM videos v JOIN files f ON f.id = v.file_id
              LEFT JOIN places p ON p.id = f.place_id
              LEFT JOIN overrides o ON o.file_id = f.id
-             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)",
+             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id AND source <> 'omdb'
+                                             ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)",
         )?
         .query_map([], |r| {
             let path: String = r.get(1)?;
@@ -713,6 +735,13 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                 Kind::Episode => (over_title.clone().unwrap_or_else(|| parsed_title.clone()), meta_title.or(parsed.episode_title.clone())),
             };
             let year = r.get::<_, Option<u16>>(4)?.or(parsed.year).or(if kind == Kind::Movie { r.get(16)? } else { None });
+            // IMDb's rating when OMDb gave one, else TMDB's score, else what a `.nfo` says.
+            let (own, imdb, tmdb): (Option<f64>, Option<f64>, Option<f64>) = (r.get(25)?, r.get(26)?, r.get(27)?);
+            let (rating, rating_source) = match (imdb, tmdb) {
+                (Some(r), _) => (Some(r), Some("IMDb".to_string())),
+                (None, Some(r)) => (Some(r), Some("TMDB".to_string())),
+                (None, None) => (own, None),
+            };
             Ok(VideoEntry {
                 video: LibVideo {
                     id: format!("v{}", r.get::<_, i64>(0)?),
@@ -728,6 +757,9 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     backdrop: r.get(10)?,
                     still: r.get(23)?,
                     frames_tried: r.get(24)?,
+                    rating,
+                    rating_source,
+                    matched: r.get::<_, Option<String>>(28)?.is_some(),
                     duration: r.get::<_, Option<i64>>(11)?.map(|d| d as f64 / 1000.0),
                     width: r.get(12)?,
                     height: r.get(13)?,
@@ -750,12 +782,12 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
 /// What is known of each series as a whole (`shows`): its facts from `tvshow.nfo`, and a backdrop when its folder
 /// has no art for one (a frame of an episode, `frames.rs`).
 fn describe_series(conn: &Connection, series: &mut [LibSeries]) -> rusqlite::Result<()> {
-    type Row = (String, String, Option<u16>, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>);
+    type Row = (String, String, Option<u16>, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>, Option<String>);
     let rows: Vec<Row> = conn
-        .prepare("SELECT key, source, year, overview, genres, rating, poster, backdrop FROM shows")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)))?
+        .prepare("SELECT key, source, year, overview, genres, rating, poster, backdrop, title FROM shows")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    // The folder's own words and art first, then what was looked up, then a frame.
+    // The folder's own words and art first, then what was looked up, then a frame. OMDb's row only holds a rating.
     let rank = |source: &str| match source {
         "nfo" => 0,
         "frame" => 2,
@@ -764,16 +796,33 @@ fn describe_series(conn: &Connection, series: &mut [LibSeries]) -> rusqlite::Res
     for s in series.iter_mut() {
         let mut mine: Vec<&Row> = rows.iter().filter(|r| r.0 == s.key).collect();
         mine.sort_by_key(|r| rank(&r.1));
-        for (_, source, year, overview, genres, rating, poster, backdrop) in mine {
+        let rated = |source: &str| mine.iter().find(|r| r.1 == source).and_then(|r| r.5);
+        (s.rating, s.rating_source) = match (rated("omdb"), rated("tmdb")) {
+            (Some(r), _) => (Some(r), Some("IMDb".to_string())),
+            (None, Some(r)) => (Some(r), Some("TMDB".to_string())),
+            (None, None) => (rated("nfo"), None),
+        };
+        s.matched = mine.iter().any(|r| r.1 == "tmdb");
+        let mut named = false;
+        for (_, source, year, overview, genres, _, poster, backdrop, title) in mine.into_iter().filter(|r| r.1 != "omdb") {
+            // Its name as `tvshow.nfo` or TMDB writes it, over the folder's
+            if let Some(t) = title.as_ref().filter(|t| !named && !t.is_empty()) {
+                s.title = t.clone();
+                named = true;
+            }
             s.year = s.year.or(*year);
             s.overview = s.overview.take().or_else(|| overview.clone());
             if s.genres.is_empty() {
                 s.genres = genres.as_deref().map(|g| g.split(", ").map(String::from).collect()).unwrap_or_default();
             }
-            s.rating = s.rating.or(*rating);
             s.poster = s.poster.take().or_else(|| poster.clone());
             s.backdrop = s.backdrop.take().or_else(|| backdrop.clone());
             s.frame_tried |= source == "frame";
+        }
+        if named {
+            for e in &mut s.episodes {
+                e.title = s.title.clone();
+            }
         }
     }
     Ok(())
@@ -807,8 +856,10 @@ pub async fn library_get(app: AppHandle) -> Result<Library, String> {
     if state.generation.load(Ordering::SeqCst) == generation {
         *state.cover_sources.lock().unwrap() = sources;
         *state.library.lock().unwrap() = Some(lib.clone());
-        // What it still lacks a picture for is made behind everything else, from the videos themselves.
+        // What it still lacks a picture for is made behind everything else, from the videos themselves; titles not
+        // asked about yet are looked up, when the person switched that on.
         crate::frames::after_library(&app, &lib);
+        crate::online_work::after_library(&app, &lib);
     }
     Ok(lib)
 }

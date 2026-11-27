@@ -325,6 +325,10 @@ pub fn adopt_folder(conn: &Connection, folder: &Path, filters: &Filters) -> rusq
     conn.execute("INSERT INTO places(path, kind_hint, created_at) VALUES (?1, ?2, ?3)", params![path_string(folder), kind_hint(filters), db::now()])?;
     let id = conn.last_insert_rowid();
     save_filters(conn, id, filters)?;
+    // With online lookups on (a TMDB key was saved), a new folder has them on too; its own switch is in Settings.
+    if crate::online::setting(conn, "tmdb_on").as_deref() == Some("1") {
+        conn.execute("UPDATE places SET tmdb_enabled = 1 WHERE id = ?1", [id])?;
+    }
     for inner in all.iter().filter(|p| p.root.starts_with(folder)) {
         conn.execute("UPDATE files SET place_id = ?1 WHERE place_id = ?2", params![id, inner.id])?;
         conn.execute("UPDATE skipped SET place_id = ?1 WHERE place_id = ?2", params![id, inner.id])?;

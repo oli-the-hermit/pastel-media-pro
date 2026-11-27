@@ -15,6 +15,7 @@ pub mod library;
 pub mod lookup;
 pub mod matching;
 pub mod online;
+pub mod online_work;
 mod open;
 pub mod parse;
 pub mod probe;
@@ -37,6 +38,7 @@ pub fn run() {
         .manage(import::ImportState::default())
         .manage(open::OpenState::default())
         .manage(frames::Frames::default())
+        .manage(online_work::Lookups::default())
         .setup(|app| {
             // Where library.db lives; it is opened on the library's first use, not now (D16).
             if let Ok(dir) = app.path().app_data_dir() {
@@ -87,6 +89,13 @@ pub fn run() {
             cache::cache_info,
             cache::cache_set_cap,
             cache::cache_clear,
+            online_work::online_status,
+            online_work::online_set_key,
+            online_work::online_set_place,
+            online_work::online_set_language,
+            online_work::online_lookup_now,
+            online_work::online_search,
+            online_work::online_set_match,
             open::open_launched,
             open::open_take,
             open::open_pick,
