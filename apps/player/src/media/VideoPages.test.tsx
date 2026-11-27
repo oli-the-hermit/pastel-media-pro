@@ -44,7 +44,8 @@ describe('Streaming title pages', () => {
     const user = await open('movies');
     await user.click(screen.getByRole('button', { name: /Heat/ }));
     expect(screen.getByRole('heading', { name: 'Heat' })).toBeTruthy();
-    expect(screen.getByText('1995')).toBeTruthy();
+    // The facts are one line: the year, the length, the file
+    expect(screen.getByText(/1995/)).toBeTruthy();
     expect(screen.getByRole('button', { name: strings.videos.play })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: strings.videos.allMovies }));
     expect(screen.getByRole('list', { name: strings.streaming.views.movies.label })).toBeTruthy();
@@ -65,7 +66,7 @@ describe('Streaming title pages', () => {
     expect(tiles).toHaveLength(1);
     await user.click(tiles[0]);
     expect(screen.getByRole('heading', { name: 'Dark' })).toBeTruthy();
-    expect(screen.getByText(strings.videos.seasons(2))).toBeTruthy();
+    expect(screen.getByText(new RegExp(strings.videos.seasons(2)))).toBeTruthy();
     expect(screen.getByRole('button', { name: strings.videos.playFrom(1, 1) })).toBeTruthy();
     const episodes = () => within(screen.getByRole('region', { name: /^Season|^Specials/ })).getAllByRole('listitem').map((li) => li.textContent);
     expect(episodes()[0]).toContain(strings.videos.episodeRow(1, 'Secrets'));

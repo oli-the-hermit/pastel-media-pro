@@ -254,6 +254,15 @@ export function usePosters(hashes: readonly (string | null | undefined)[]): (str
   return hashes.map((h) => (h ? urls[h] : undefined));
 }
 
+/**
+ * A page shows these videos now (a film, a series' episodes): the desktop app makes the pictures they lack from
+ * the videos themselves, before the rest of the library's. `show` is the series' key when its page has no backdrop.
+ */
+export function wantFrames(paths: string[], show?: string): void {
+  if (!isDesktop() || paths.length === 0) return;
+  void invoke('frames_want', { paths, show: show ?? null }).catch(() => {});
+}
+
 const openedCovers = new Map<string, Promise<string | undefined>>();
 
 /** The cover of a song opened from Windows (`path`; empty for none), read once per file by the desktop app. */

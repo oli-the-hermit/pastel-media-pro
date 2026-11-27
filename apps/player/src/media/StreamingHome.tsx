@@ -18,7 +18,8 @@ const BANNER_EVERY = 10_000;
 const nameOf = (p: HomePick) => (p.series ? p.series.title || strings.videos.unknownSeries : videoName(p.video));
 const titleOf = (p: HomePick) => (p.series ? ({ kind: 'series', id: p.series.id } as const) : ({ kind: 'video', id: p.video.id } as const));
 /** The picture of a suggestion: the video's own frame or poster, or its series' poster. */
-const artOf = (p: HomePick) => p.video.backdrop ?? p.video.poster ?? p.series?.poster;
+// A wide picture first: the title's backdrop, a series' own, an episode's frame; a poster when there is none.
+const artOf = (p: HomePick) => p.video.backdrop ?? p.series?.backdrop ?? p.video.still ?? p.video.poster ?? p.series?.poster;
 
 /** A suggestion's facts on the banner: where a series is, or a film's year, length and genres; then what is left of it. */
 function factsOf(p: HomePick, history: History): string[] {
