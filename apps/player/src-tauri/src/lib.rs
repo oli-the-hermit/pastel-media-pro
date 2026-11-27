@@ -12,6 +12,7 @@ pub mod history;
 pub mod playlists;
 pub mod import;
 pub mod library;
+pub mod lookup;
 pub mod matching;
 pub mod online;
 mod open;
