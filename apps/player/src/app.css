@@ -179,8 +179,21 @@ body {
 }
 
 .mp-season-pick {
-  align-self: flex-start;
   min-width: 200px;
+}
+
+/* A season's line: which season at its start, how its episodes are shown at its end (ux.md §6). */
+.mp-season-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ps-space-12);
+}
+
+.mp-episode-views {
+  display: flex;
+  gap: var(--ps-space-4);
+  margin-inline-start: auto;
 }
 
 .mp-heading-sm {

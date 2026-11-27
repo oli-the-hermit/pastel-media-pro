@@ -326,6 +326,12 @@ export const strings = {
     season: (n: number | null) => (n == null ? 'Episodes' : n === 0 ? 'Specials' : `Season ${n}`),
     seasons: (n: number) => (n === 1 ? '1 season' : `${n} seasons`),
     seasonLabel: 'Season',
+    /** The two ways a season's episodes are shown, on a series' page. */
+    episodeViews: 'How episodes are shown',
+    viewList: 'As a list',
+    viewRow: 'As a row of pictures',
+    /** An episode card's first line, over its own name. */
+    episodeNumber: (episode: number | null) => (episode != null ? `Episode ${episode}` : 'Episode'),
     /** An episode row: its number, then its own title when the file name gives one. */
     episodeRow: (episode: number | null, title: string | null) =>
       [episode != null ? `Episode ${episode}` : 'Episode', title].filter(Boolean).join(' · '),

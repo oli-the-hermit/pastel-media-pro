@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import {
-  Button, IconCheck, IconFileVideo, IconMonitor, IconPlay, IconSearch, IconWarning, ListRow, Select, TextButton, TitleGrid, TitleHeader, TitleTile,
-  formatDuration, formatTime, formatTimeLeft, type TitleTileShape,
+  Button, EpisodeCard, IconButton, IconCheck, IconFileVideo, IconMonitor, IconPlay, IconSearch, IconViewList, IconViewTiles, IconWarning, ListRow, MediaRow,
+  Select, TextButton, TitleGrid, TitleHeader, TitleTile, formatDuration, formatTime, formatTimeLeft, type TitleTileShape,
 } from '@pastel-studio/react';
 import { strings } from '../strings';
 import { tier } from './import/filters';
@@ -9,6 +9,7 @@ import { progressOf, resumePoint, useHistory, type Play } from './history';
 import { usePoster, usePosters, wantFrames, type LibSeries, type LibVideo } from './library';
 import { useMissing } from './missing';
 import { usePlayback } from './playback';
+import { useRemembered } from './remember';
 import { isClip, leftOf, nextEpisode, seriesProgress, seriesState, videoName, videoState } from './streaming';
 
 type History = ReadonlyMap<string, Play>;
@@ -198,6 +199,32 @@ export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; back
   );
 }
 
+/** One episode as a card of the row: its picture (a frame of the video), number, name, length and how far it was watched. */
+function EpisodeTile({ episode, history, current, onOpen, ...rest }: TileRest & { episode: LibVideo; history: History; current: boolean; onOpen: () => void }) {
+  const image = usePoster(episode.still ?? episode.backdrop);
+  const play = history.get(episode.path);
+  const number = strings.videos.episodeNumber(episode.episode);
+  return (
+    <EpisodeCard
+      title={episode.episodeTitle || number}
+      overline={episode.episodeTitle ? number : undefined}
+      length={lengthOf(episode) || undefined}
+      summary={episode.overview ?? undefined}
+      image={image}
+      icon={<IconFileVideo size={28} />}
+      progress={videoState(episode, history) === 'progress' ? progressOf(play) : undefined}
+      watched={play?.finished ?? false}
+      current={current}
+      unavailable={episode.missing ? strings.missing.short : undefined}
+      data-episode-id={episode.id}
+      onClick={onOpen}
+      {...rest}
+    />
+  );
+}
+
+type EpisodeView = 'list' | 'row';
+
 /** Episodes with no season (most anime releases) are listed under this one. */
 const NO_SEASON = -1;
 const seasonOf = (e: LibVideo) => e.season ?? NO_SEASON;
@@ -225,6 +252,15 @@ export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; 
   const first: LibVideo | undefined = next ?? episodes.find((e) => !e.missing);
   const resumes = !!first && resumePoint(history.get(first.path)) > 0;
   const realSeasons = seasons.filter((s) => s > 0).length;
+  const [view, setView] = useRemembered<EpisodeView>('pastelmedia_episode_view', 'list', (v) => v === 'list' || v === 'row');
+  // In the row, the episode the series goes on with is brought into view.
+  const goesOn = next?.id;
+  useEffect(() => {
+    if (view !== 'row' || !goesOn) return;
+    const card = document.querySelector<HTMLElement>(`[data-episode-id="${CSS.escape(goesOn)}"]`);
+    card?.scrollIntoView?.({ inline: 'start', block: 'nearest' });
+  }, [view, goesOn, season]);
+  const open = (e: LibVideo) => (e.missing ? missing.find({ path: e.path, name: e.fileName }) : playback.playVideo(e));
   // The pictures the season shown lacks (and the series' backdrop) are made first, from the episodes themselves.
   const lacking = episodes.filter((e) => !e.still && !e.missing).map((e) => e.path).join('\n');
   const anyEpisode = episodes.find((e) => !e.missing)?.path ?? '';
@@ -256,19 +292,37 @@ export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; 
       onBack={onBack}
       backLabel={backLabel}
     >
-      <section className="mp-episodes-section" aria-label={seasonName(season)}>
-        {seasons.length > 1 ? (
-          <div className="mp-season-pick">
-            <Select
-              value={season}
-              onChange={setSeason}
-              options={seasons.map((s) => ({ value: s, label: seasonName(s) }))}
-              ariaLabel={strings.videos.seasonLabel}
-            />
+      {/* The row names its own region; the list is named here. */}
+      <section className="mp-episodes-section" aria-label={view === 'list' ? seasonName(season) : undefined}>
+        <div className="mp-season-line">
+          {seasons.length > 1 ? (
+            <div className="mp-season-pick">
+              <Select
+                value={season}
+                onChange={setSeason}
+                options={seasons.map((s) => ({ value: s, label: seasonName(s) }))}
+                ariaLabel={strings.videos.seasonLabel}
+              />
+            </div>
+          ) : view === 'list' ? (
+            <h3 className="mp-heading-sm">{seasonName(season)}</h3>
+          ) : undefined}
+          <div className="mp-episode-views" role="group" aria-label={strings.videos.episodeViews}>
+            <IconButton label={strings.videos.viewList} pressed={view === 'list'} surface={0} onClick={() => setView('list')}>
+              <IconViewList size={18} />
+            </IconButton>
+            <IconButton label={strings.videos.viewRow} pressed={view === 'row'} surface={0} onClick={() => setView('row')}>
+              <IconViewTiles size={18} />
+            </IconButton>
           </div>
+        </div>
+        {view === 'row' ? (
+          <MediaRow title={seasonName(season)} headingLevel={3}>
+            {episodes.map((e) => (
+              <EpisodeTile key={e.id} episode={e} history={history} current={playback.video?.id === e.id} onOpen={() => open(e)} />
+            ))}
+          </MediaRow>
         ) : (
-          <h3 className="mp-heading-sm">{seasonName(season)}</h3>
-        )}
         <div role="list" className="mp-episodes">
           {episodes.map((e) => {
             const watched = videoState(e, history) === 'watched';
@@ -282,12 +336,13 @@ export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; 
                     .filter(Boolean)
                     .join(' · ')}
                   aria-current={playback.video?.id === e.id ? 'true' : undefined}
-                  onClick={() => (e.missing ? missing.find({ path: e.path, name: e.fileName }) : playback.playVideo(e))}
+                  onClick={() => open(e)}
                 />
               </div>
             );
           })}
         </div>
+        )}
       </section>
     </TitlePage>
   );
