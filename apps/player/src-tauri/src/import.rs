@@ -55,7 +55,7 @@ pub fn walk(root: &Path, stop: &AtomicBool, mut each: impl FnMut(OnDisk)) {
     }
 }
 
-fn kind_name(k: MediaKind) -> &'static str {
+pub fn kind_name(k: MediaKind) -> &'static str {
     match k {
         MediaKind::Audio => "audio",
         MediaKind::Video => "video",
@@ -325,6 +325,10 @@ pub fn adopt_folder(conn: &Connection, folder: &Path, filters: &Filters) -> rusq
     conn.execute("INSERT INTO places(path, kind_hint, created_at) VALUES (?1, ?2, ?3)", params![path_string(folder), kind_hint(filters), db::now()])?;
     let id = conn.last_insert_rowid();
     save_filters(conn, id, filters)?;
+    // With online lookups on (a TMDB key was saved), a new folder has them on too; its own switch is in Settings.
+    if crate::online::setting(conn, "tmdb_on").as_deref() == Some("1") {
+        conn.execute("UPDATE places SET tmdb_enabled = 1 WHERE id = ?1", [id])?;
+    }
     for inner in all.iter().filter(|p| p.root.starts_with(folder)) {
         conn.execute("UPDATE files SET place_id = ?1 WHERE place_id = ?2", params![id, inner.id])?;
         conn.execute("UPDATE skipped SET place_id = ?1 WHERE place_id = ?2", params![id, inner.id])?;
@@ -357,6 +361,8 @@ pub struct VideoFacts {
     pub parsed: Parsed,
     pub show_folder: Option<String>,
     pub details: Option<Details>,
+    /// An episode's series as a whole, from `tvshow.nfo` in the show's folder: the key it is kept under, and its facts.
+    pub show: Option<(String, Details)>,
     pub poster: Option<Picture>,
     pub backdrop: Option<Picture>,
 }
@@ -427,7 +433,9 @@ pub fn read_file(f: &OnDisk, root: Option<&Path>, cache: &Path, counts: &FolderC
             let lone = parsed.kind == Kind::Movie && f.path.parent().map(|d| counts.videos_in(d) == 1).unwrap_or(false);
             let show_dir = show_folder.as_ref().and_then(|_| f.path.parent()?.parent().map(Path::to_path_buf));
             let art = matching::art(&f.path, lone, show_dir.as_deref());
+            let show = show_dir.as_deref().and_then(matching::show_details).map(|d| (parse::series_key(show_folder.as_deref().unwrap_or(&parsed.title)), d));
             rec.video = Some(VideoFacts {
+                show,
                 probe: probe::probe(&f.path).unwrap_or_default(),
                 details: matching::details(&f.path, lone),
                 poster: art.poster.and_then(|p| picture(&p, "poster", 342, cache)),
@@ -511,6 +519,12 @@ pub fn write_record(conn: &Connection, rec: &Record, place_id: Option<i64>, cach
                 has(&v.backdrop),
             ],
         )?;
+        if let Some((key, d)) = &v.show {
+            conn.execute(
+                "INSERT OR REPLACE INTO shows(key, source, external_id, title, year, overview, genres, rating, fetched_at) VALUES (?1, 'nfo', ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![key, d.external_id, d.title, d.year, d.overview, (!d.genres.is_empty()).then(|| d.genres.join(", ")), d.rating, now],
+            )?;
+        }
         conn.execute("DELETE FROM metadata WHERE file_id = ?1 AND source IN ('nfo', 'sidecar')", [id])?;
         if let Some(d) = &v.details {
             conn.execute(
@@ -747,7 +761,7 @@ fn process(app: &AppHandle, id: i64, place: Option<&Place>, files: Vec<OnDisk>) 
     Ok(out)
 }
 
-fn stat(path: &Path) -> Option<OnDisk> {
+pub fn stat(path: &Path) -> Option<OnDisk> {
     let meta = std::fs::metadata(path).ok()?;
     Some(OnDisk { path: path.to_path_buf(), kind: formats::kind_of(path)?, size: meta.len(), mtime: mtime_of(&meta) })
 }

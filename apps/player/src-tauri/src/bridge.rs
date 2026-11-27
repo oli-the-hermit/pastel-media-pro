@@ -113,7 +113,7 @@ fn to_value<T: serde::Serialize>(v: T) -> Result<Value, String> {
 fn dispatch(app: &AppHandle, queue: &Arc<Queue>, cmd: &str, args: &Value) -> Result<Value, String> {
     match cmd {
         "library_get" => to_value(block(library::library_get(app.clone()))?),
-        "library_cover" => to_value(block(library::library_cover(app.state(), arg(args, "albumId")?))?),
+        "library_cover" => to_value(block(library::library_cover(app.clone(), app.state(), arg(args, "albumId")?))?),
         "library_image" => to_value(block(library::library_image(app.clone(), arg(args, "hash")?))?),
         "history_record" => to_value(block(crate::history::history_record(
             app.clone(),
@@ -159,6 +159,21 @@ fn dispatch(app: &AppHandle, queue: &Arc<Queue>, cmd: &str, args: &Value) -> Res
         "places_list" => to_value(import::places_list(app.clone())?),
         "places_rescan" => to_value(import::places_rescan(app.clone(), arg(args, "placeId")?)?),
         "places_remove" => to_value(import::places_remove(app.clone(), arg(args, "placeId")?)?),
+        "file_relink" => to_value(crate::relink::file_relink(app.clone(), arg(args, "path")?, arg(args, "newPath")?, arg(args, "anyway")?)?),
+        "file_forget" => to_value(crate::relink::file_forget(app.clone(), arg(args, "path")?)?),
+        "frames_want" => to_value(crate::frames::frames_want(app.clone(), arg(args, "paths")?, arg(args, "show")?)?),
+        "cache_info" => to_value(crate::cache::cache_info(app.clone())?),
+        "cache_set_cap" => to_value(crate::cache::cache_set_cap(app.clone(), arg(args, "mb")?)?),
+        "cache_clear" => to_value(crate::cache::cache_clear(app.clone())?),
+        "online_set_album_covers" => to_value(block(crate::musicbrainz::online_set_album_covers(app.clone(), arg(args, "on")?))?),
+        "online_status" => to_value(block(crate::online_work::online_status(app.clone()))?),
+        "online_set_key" => to_value(block(crate::online_work::online_set_key(app.clone(), arg(args, "service")?, arg(args, "key")?))?),
+        "online_set_place" => to_value(block(crate::online_work::online_set_place(app.clone(), arg(args, "placeId")?, arg(args, "enabled")?))?),
+        "online_set_language" => to_value(block(crate::online_work::online_set_language(app.clone(), arg(args, "language")?))?),
+        "online_lookup_now" => to_value(block(crate::online_work::online_lookup_now(app.clone()))?),
+        "online_search" => to_value(block(crate::online_work::online_search(app.clone(), arg(args, "kind")?, arg(args, "query")?, arg(args, "year")?))?),
+        "online_set_match" => to_value(block(crate::online_work::online_set_match(app.clone(), arg(args, "kind")?, arg(args, "key")?, arg(args, "external")?))?),
+        "place_relink" => to_value(crate::relink::place_relink(app.clone(), arg(args, "placeId")?, arg(args, "folder")?)?),
         "open_launched" => Ok(json!(false)),
         "open_take" => Ok(json!([])),
         // Playback and the window itself aren't part of the bridge (no window, no engine).

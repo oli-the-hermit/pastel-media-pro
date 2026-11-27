@@ -2,18 +2,26 @@ use tauri::{DragDropEvent, Manager, WindowEvent};
 
 #[cfg(debug_assertions)]
 mod bridge;
+pub mod cache;
 pub mod db;
 mod engine;
 pub mod filters;
+pub mod frames;
 mod formats;
 pub mod history;
 pub mod playlists;
 pub mod import;
 pub mod library;
+pub mod lookup;
 pub mod matching;
+pub mod musicbrainz;
+pub mod online;
+pub mod online_work;
 mod open;
 pub mod parse;
 pub mod probe;
+pub mod relink;
+pub mod tmdb;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,6 +38,9 @@ pub fn run() {
         .manage(db::Db::default())
         .manage(import::ImportState::default())
         .manage(open::OpenState::default())
+        .manage(frames::Frames::default())
+        .manage(online_work::Lookups::default())
+        .manage(musicbrainz::Covers::default())
         .setup(|app| {
             // Where library.db lives; it is opened on the library's first use, not now (D16).
             if let Ok(dir) = app.path().app_data_dir() {
@@ -73,6 +84,21 @@ pub fn run() {
             import::places_list,
             import::places_rescan,
             import::places_remove,
+            relink::file_relink,
+            relink::file_forget,
+            relink::place_relink,
+            frames::frames_want,
+            cache::cache_info,
+            cache::cache_set_cap,
+            cache::cache_clear,
+            online_work::online_status,
+            online_work::online_set_key,
+            online_work::online_set_place,
+            online_work::online_set_language,
+            online_work::online_lookup_now,
+            online_work::online_search,
+            online_work::online_set_match,
+            musicbrainz::online_set_album_covers,
             open::open_launched,
             open::open_take,
             open::open_pick,

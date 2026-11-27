@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(windows)]
-mod mpv {
+pub(crate) mod mpv {
     use libloading::Library;
     use std::ffi::{c_char, c_int, c_void, CStr, CString};
 
@@ -20,6 +20,18 @@ mod mpv {
         free: unsafe extern "C" fn(*mut c_void),
         wait_event: unsafe extern "C" fn(*mut c_void, f64) -> *const Event,
         error_string: unsafe extern "C" fn(c_int) -> *const c_char,
+        terminate: unsafe extern "C" fn(*mut c_void),
+    }
+
+    /// Where an engine puts its picture.
+    pub enum Output<'a> {
+        /// The app's window: the player.
+        Window(isize),
+        /// Nowhere, and no sound either: the tests.
+        #[cfg_attr(not(test), allow(dead_code))]
+        Nothing,
+        /// One JPEG per frame shown, in this folder, with no sound: taking a frame out of a video (`frames.rs`).
+        Images(&'a std::path::Path),
     }
 
     /// `mpv_event` and the start of `mpv_event_end_file`, from client.h (checked against the shipped header).
@@ -35,6 +47,7 @@ mod mpv {
         reason: c_int,
         error: c_int,
     }
+    const EVENT_NONE: c_int = 0;
     const EVENT_SHUTDOWN: c_int = 1;
     const EVENT_END_FILE: c_int = 7;
     const END_FILE_REASON_ERROR: c_int = 4;
@@ -42,8 +55,7 @@ mod mpv {
     unsafe impl Send for Mpv {}
 
     impl Mpv {
-        /// With a window to draw into; or with none, which plays without picture or sound (for the tests).
-        pub fn new(dll: &std::path::Path, wid: Option<isize>) -> Result<Mpv, String> {
+        pub fn new(dll: &std::path::Path, output: Output) -> Result<Mpv, String> {
             unsafe {
                 let lib = Library::new(dll).map_err(|e| format!("could not load {}: {e}", dll.display()))?;
                 let create: unsafe extern "C" fn() -> *mut c_void = *lib.get(b"mpv_create\0").map_err(|e| e.to_string())?;
@@ -56,6 +68,7 @@ mod mpv {
                 let free = *lib.get(b"mpv_free\0").map_err(|e| e.to_string())?;
                 let wait_event = *lib.get(b"mpv_wait_event\0").map_err(|e| e.to_string())?;
                 let error_string = *lib.get(b"mpv_error_string\0").map_err(|e| e.to_string())?;
+                let terminate = *lib.get(b"mpv_terminate_destroy\0").map_err(|e| e.to_string())?;
                 let h = create();
                 if h.is_null() {
                     return Err("mpv_create failed".into());
@@ -64,14 +77,21 @@ mod mpv {
                     let (k, v) = (CString::new(k).unwrap(), CString::new(v).unwrap());
                     set_opt(h, k.as_ptr(), v.as_ptr())
                 };
-                match wid {
-                    Some(wid) => {
+                match output {
+                    Output::Window(wid) => {
                         opt("wid", &wid.to_string());
                         opt("vo", "gpu-next");
                         opt("gpu-context", "d3d11");
                     }
-                    None => {
+                    Output::Nothing => {
                         opt("vo", "null");
+                        opt("ao", "null");
+                    }
+                    Output::Images(dir) => {
+                        opt("vo", "image");
+                        opt("vo-image-format", "jpg");
+                        opt("vo-image-jpeg-quality", "92");
+                        opt("vo-image-outdir", &dir.to_string_lossy());
                         opt("ao", "null");
                     }
                 }
@@ -103,11 +123,19 @@ mod mpv {
                 ] {
                     opt(k, v);
                 }
+                if matches!(output, Output::Images(_)) {
+                    // One frame of each file, decoded in software (a frame on the graphics card can't be written
+                    // out), from the nearest key frame (any frame near the asked moment will do), then the file ends.
+                    // Two decoding threads: it works behind everything else.
+                    for (k, v) in [("frames", "1"), ("hwdec", "no"), ("hr-seek", "no"), ("keep-open", "no"), ("aid", "no"), ("sid", "no"), ("vd-lavc-threads", "2")] {
+                        opt(k, v);
+                    }
+                }
                 let rc = init(h);
                 if rc < 0 {
                     return Err(format!("mpv_initialize failed: {rc}"));
                 }
-                Ok(Mpv { _lib: lib, h, command, set_prop, get_prop, free, wait_event, error_string })
+                Ok(Mpv { _lib: lib, h, command, set_prop, get_prop, free, wait_event, error_string, terminate })
             }
         }
 
@@ -129,6 +157,67 @@ mod mpv {
                     _ => {}
                 }
             });
+        }
+
+        /// Waits for the file that was loaded to end, reading mpv's events on this thread: only for an engine nothing
+        /// else reads the events of (`watch_errors` is the other reader). An error is mpv's reason.
+        pub fn wait_end(&self, timeout: std::time::Duration) -> Result<(), String> {
+            let until = std::time::Instant::now() + timeout;
+            while std::time::Instant::now() < until {
+                let e = unsafe { &*(self.wait_event)(self.h, 0.25) };
+                match e.event_id {
+                    EVENT_NONE => {}
+                    EVENT_SHUTDOWN => return Err("the engine stopped".into()),
+                    EVENT_END_FILE if !e.data.is_null() => {
+                        let end = unsafe { &*(e.data as *const EndFile) };
+                        return if end.reason == END_FILE_REASON_ERROR {
+                            Err(unsafe { CStr::from_ptr((self.error_string)(end.error)) }.to_string_lossy().into_owned())
+                        } else {
+                            Ok(())
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            Err("it took too long".into())
+        }
+
+        /// One frame of a video, from about `percent` of the way in, as the JPEG file an `Output::Images` engine
+        /// leaves in `dir` (emptied first). A file that can't be sought that way (some transport streams) gives a
+        /// frame from two seconds in, or its first.
+        pub fn frame(&self, path: &str, percent: u8, dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+            let mut failure = String::new();
+            // The last try asks for no place at all: a seek in a stream with one key frame finds nothing to show.
+            for start in [format!("start={percent}%"), "start=2".to_string(), String::new()] {
+                for old in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
+                    std::fs::remove_file(old.path()).ok();
+                }
+                self.set("pause", "no");
+                let asked = if start.is_empty() { self.cmd(&["loadfile", path]) } else { self.cmd(&["loadfile", path, "replace", "-1", &start]) };
+                if asked < 0 {
+                    return Err("loadfile failed".into());
+                }
+                match self.wait_end(std::time::Duration::from_secs(30)) {
+                    Ok(()) => {
+                        let made = std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).next();
+                        match made {
+                            Some(file) => return Ok(file),
+                            None => failure = "no picture was written".into(),
+                        }
+                    }
+                    Err(e) => {
+                        // A file that is still open after the wait would write its frame into the next try
+                        self.cmd(&["stop"]);
+                        failure = e;
+                    }
+                }
+            }
+            Err(failure)
+        }
+
+        /// Ends the engine and frees it. Never for the player's engine: its event thread lives as long as the app.
+        pub fn close(self) {
+            unsafe { (self.terminate)(self.h) };
         }
 
         pub fn cmd(&self, args: &[&str]) -> c_int {
@@ -232,6 +321,13 @@ fn dll_candidates(app: &AppHandle) -> Vec<PathBuf> {
     list
 }
 
+/// A second engine that writes frames of videos into `dir` as pictures (`frames.rs`); the player's is untouched.
+#[cfg(windows)]
+pub(crate) fn frame_engine(app: &AppHandle, dir: &std::path::Path) -> Result<mpv::Mpv, String> {
+    let dll = dll_candidates(app).into_iter().find(|p| p.is_file()).ok_or("libmpv-2.dll was not found")?;
+    mpv::Mpv::new(&dll, mpv::Output::Images(dir))
+}
+
 #[cfg(windows)]
 fn ensure(app: &AppHandle, engine: &Engine) -> Result<(), String> {
     let mut slot = engine.mpv.lock().unwrap();
@@ -241,7 +337,7 @@ fn ensure(app: &AppHandle, engine: &Engine) -> Result<(), String> {
     let dll = dll_candidates(app).into_iter().find(|p| p.is_file()).ok_or("libmpv-2.dll was not found")?;
     let win = app.get_webview_window("main").ok_or("no main window")?;
     let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as isize;
-    let mpv = mpv::Mpv::new(&dll, Some(hwnd))?;
+    let mpv = mpv::Mpv::new(&dll, mpv::Output::Window(hwnd))?;
     let (last, failed) = (engine.last_path.clone(), engine.load_error.clone());
     mpv.watch_errors(move |reason| {
         let mut slot = failed.lock().unwrap();
@@ -280,6 +376,11 @@ pub async fn engine_load(
     start: Option<f64>,
     paused: Option<bool>,
 ) -> Result<(), String> {
+    // A file that moved or sits on a drive that isn't connected: the page offers to find it ("file-missing" is the
+    // word it knows this by).
+    if !std::path::Path::new(&path).is_file() {
+        return Err("file-missing".into());
+    }
     if !crate::open::is_allowed(&opened, &path) && !crate::library::allowed(&app, &path) {
         // The library is only opened once a page shows it. The song the player greets with is asked for before
         // that: open the library, then look again.
@@ -374,7 +475,7 @@ pub async fn engine_status(engine: State<'_, Engine>) -> Result<Value, String> {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::mpv::Mpv;
+    use super::mpv::{Mpv, Output};
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
@@ -417,7 +518,7 @@ mod tests {
             eprintln!("skipped: no libmpv-2.dll in lib/");
             return;
         }
-        let m = Mpv::new(&dll, None).expect("the engine starts without a window");
+        let m = Mpv::new(&dll, Output::Nothing).expect("the engine starts without a window");
         let file = silence();
         let path = file.to_string_lossy().to_string();
 
@@ -439,5 +540,41 @@ mod tests {
         assert!(wait_for(&m, |m| pos(m).is_some_and(|p| p >= 5.0)), "plays from five seconds, at {:?}", pos(&m));
         m.cmd(&["stop"]);
         std::fs::remove_file(file).ok();
+    }
+
+    /// The test videos: the repository's `corpus/` (it is not in the repository), or the folder `PASTEL_CORPUS` names.
+    fn corpus() -> Option<PathBuf> {
+        let dir = std::env::var("PASTEL_CORPUS").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../corpus")));
+        dir.is_dir().then_some(dir)
+    }
+
+    /// A second engine with no window writes one frame of a video as a JPEG, for each kind of file in the corpus.
+    #[test]
+    fn writes_one_frame_of_a_video() {
+        let dll = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../lib/libmpv-2.dll"));
+        let (true, Some(corpus)) = (dll.is_file(), corpus()) else {
+            eprintln!("skipped: no libmpv-2.dll in lib/, or no corpus");
+            return;
+        };
+        let out = std::env::temp_dir().join(format!("pmp-frames-{}", std::process::id()));
+        std::fs::create_dir_all(&out).unwrap();
+        let m = Mpv::new(&dll, Output::Images(&out)).expect("the engine starts with pictures as its output");
+        let mut report = vec![];
+        for name in ["h264.mp4", "hevc.mp4", "h264-10bit.mkv", "hevc-10bit.mkv", "av1.mkv", "vp9.webm", "mpeg4.avi", "h264.ts", "portrait.mp4"] {
+            let file = corpus.join("video").join(name);
+            if !file.is_file() {
+                continue;
+            }
+            let began = Instant::now();
+            let frame = m.frame(&file.to_string_lossy(), 40, &out);
+            let size = frame.as_ref().ok().and_then(|f| image::image_dimensions(f).ok());
+            report.push(format!("{name}: {size:?}, {} ms", began.elapsed().as_millis()));
+            assert!(frame.is_ok(), "{name} gives a frame: {frame:?}");
+            assert!(size.is_some_and(|(w, h)| w > 0 && h > 0), "{name}'s picture can be read");
+        }
+        eprintln!("{}", report.join("\n"));
+        assert!(!report.is_empty(), "the corpus has videos");
+        m.close();
+        std::fs::remove_dir_all(out).ok();
     }
 }

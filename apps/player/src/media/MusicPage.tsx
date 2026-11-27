@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlbumPage, Button, Combobox, EmptyState, FilterChips, IconMusic, IconPlay, IconShuffle, IconUser, TextButton, TitleGrid, TitleTile, TrackList,
   type ComboboxOption,
@@ -6,6 +6,8 @@ import {
 import { strings } from '../strings';
 import { useHistory } from './history';
 import { AddButtons } from './LibraryFolders';
+import { useMissing } from './missing';
+import { shuffled } from './listing';
 import { toAlbum, toTrack, useCover, type LibTrack, type Library } from './library';
 import {
   MUSIC_SORTS, MUSIC_VIEWS, asLibAlbum, buildMusic, searchMusic, sortAlbums, sortArtists, sortSongs, suggestMusic,
@@ -13,6 +15,7 @@ import {
 } from './music';
 import { usePlayback } from './playback';
 import { useAddToPlaylist } from './PlaylistActions';
+import { useQueueActions } from './QueueActions';
 import { useRemembered } from './remember';
 import { SortMenu } from './SortMenu';
 
@@ -21,23 +24,6 @@ const DEFAULT_SORTS: Record<MusicView, MusicSort> = { songs: 'az', albums: 'az',
 
 /** What is open over the lists: an album, or an artist (and maybe one of their albums over them). */
 type Opened = { kind: 'album' | 'artist'; id: string };
-
-/** A long list is drawn a part at a time: more rows as the end of what is drawn comes into view. */
-function useShown(total: number, key: unknown, step = 200): [number, (el: HTMLElement | null) => void] {
-  const [shown, setShown] = useState(step);
-  useEffect(() => setShown(step), [key, step]);
-  const watcher = useRef<IntersectionObserver | null>(null);
-  const sentinel = useCallback(
-    (el: HTMLElement | null) => {
-      watcher.current?.disconnect();
-      if (!el || typeof IntersectionObserver === 'undefined') return;
-      watcher.current = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setShown((n) => Math.min(total, n + step)), { rootMargin: '600px' });
-      watcher.current.observe(el);
-    },
-    [total, step],
-  );
-  return [Math.min(shown, total), sentinel];
-}
 
 const albumName = (a: AlbumEntry) => a.title || strings.music.noAlbum;
 const artistName = (name: string) => name || strings.music.unknownArtist;
@@ -51,6 +37,7 @@ function AlbumTile({ album, current, onOpen }: { album: AlbumEntry; current: boo
       image={cover}
       icon={<IconMusic size={28} />}
       current={current}
+      unavailable={album.tracks.every((t) => t.missing) ? strings.missing.short : undefined}
       data-tile-id={album.id}
       onClick={onOpen}
     />
@@ -68,20 +55,24 @@ function AlbumsGrid({ albums, onOpen }: { albums: AlbumEntry[]; onOpen: (id: str
   );
 }
 
-/** Songs as a list: their number in it, title and artist, album, when they were added, length. */
+/**
+ * Songs as a list: their number in it, title and artist, album, when they were added, length. The whole list is
+ * handed over: the design system's TrackList draws only the rows near the screen once there are many.
+ */
 function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
   const playback = usePlayback();
   const addTo = useAddToPlaylist();
-  const paths = useMemo(() => new Map(songs.map((t) => [t.id, t.path])), [songs]);
-  const [shown, sentinel] = useShown(songs.length, songs);
+  const queueThem = useQueueActions();
+  const missing = useMissing();
+  const byId = useMemo(() => new Map(songs.map((t) => [t.id, t])), [songs]);
   const tracks = useMemo(
     () =>
-      songs.slice(0, shown).map((t, i) => ({
+      songs.map((t, i) => ({
         ...toTrack(t),
         number: i + 1,
         addedAt: t.addedAt ? new Date(t.addedAt * 1000).toISOString() : undefined,
       })),
-    [songs, shown],
+    [songs],
   );
   return (
     <div className="mp-songs">
@@ -96,9 +87,16 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
           else playback.playTracks(songs, songs.findIndex((x) => x.id === t.id));
         }}
         onPause={playback.engine.pause}
-        rowActions={(t) => addTo([paths.get(t.id) ?? ''].filter(Boolean))}
+        onUnavailable={(t) => {
+          const song = byId.get(t.id);
+          if (song) missing.find({ path: song.path, name: song.title });
+        }}
+        rowActions={(t) => {
+          const song = byId.get(t.id);
+          if (song?.missing) return missing.menu({ path: song.path, name: song.title });
+          return song ? [...queueThem([song]), ...addTo([song.path])] : [];
+        }}
       />
-      {shown < songs.length ? <div ref={sentinel} className="mp-songs-more" aria-hidden="true" /> : undefined}
     </div>
   );
 }
@@ -107,6 +105,8 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
   const cover = useCover(album.coverId);
   const playback = usePlayback();
   const addTo = useAddToPlaylist();
+  const queueThem = useQueueActions();
+  const missing = useMissing();
   const tracks = album.tracks;
   const view = useMemo(
     () => toAlbum({ ...asLibAlbum(album), artist: album.various ? strings.music.variousArtists : album.artist }, tracks, cover),
@@ -132,21 +132,20 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
           else playback.playTracks(tracks, i);
         }}
         onPause={playback.engine.pause}
-        actions={addTo(tracks.map((t) => t.path))}
-        rowActions={(t) => addTo(tracks.filter((x) => x.id === t.id).map((x) => x.path))}
+        onUnavailable={(t) => {
+          const song = tracks.find((x) => x.id === t.id);
+          if (song) missing.find({ path: song.path, name: song.title });
+        }}
+        actions={[...queueThem(tracks), ...addTo(tracks.map((t) => t.path))]}
+        rowActions={(t) => {
+          const song = tracks.find((x) => x.id === t.id);
+          if (song?.missing) return missing.menu({ path: song.path, name: song.title });
+          return song ? [...queueThem([song]), ...addTo([song.path])] : [];
+        }}
       />
     </div>
   );
 }
-
-const shuffled = <T,>(items: T[]): T[] => {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-};
 
 /** An artist's page: who it is, Play and Shuffle, their albums, then their songs that have no album. */
 function OpenArtist({ artist, onOpenAlbum, onBack }: { artist: ArtistEntry; onOpenAlbum: (id: string) => void; onBack: () => void }) {

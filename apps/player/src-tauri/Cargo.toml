@@ -38,6 +38,9 @@ libloading = "0.8"
 tauri-plugin-dialog = "2"
 rusqlite = { version = "0.43", features = ["bundled"] }
 blake3 = "1.8.7"
+# Online metadata (plan D13): a small blocking HTTPS client, and the system keychain for the keys.
+ureq = { version = "2", features = ["json"] }
+keyring = { version = "3", features = ["windows-native"] }
 
 # One window: a second launch hands its files to the first and exits (spike S4).
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]

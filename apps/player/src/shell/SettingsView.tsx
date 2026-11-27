@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { EmptyState, Field, Select, Switch, Tabs } from '@pastel-studio/react';
 import { LibraryFoldersSettings } from '../media/LibraryFolders';
+import { OnlineSettings } from '../media/OnlineSettings';
+import { StorageSettings } from '../media/StorageSettings';
 import { updateSettings, useSettings, type StartPage } from '../settings';
 import { strings } from '../strings';
 
@@ -34,7 +36,19 @@ export function SettingsView() {
   const current = strings.settings.tabs[tab];
   return (
     <Tabs tabs={TABS} value={tab} onChange={(key) => setTab(key as SettingsTab)} ariaLabel={strings.settings.ariaLabel}>
-      {tab === 'general' ? <GeneralSettings /> : tab === 'library' ? <LibraryFoldersSettings /> : <EmptyState>{'empty' in current ? current.empty : null}</EmptyState>}
+      {tab === 'general' ? (
+        <GeneralSettings />
+      ) : tab === 'library' ? (
+        // The folders, then the pictures kept of what is in them
+        <div className="mp-settings-parts">
+          <LibraryFoldersSettings />
+          <StorageSettings />
+        </div>
+      ) : tab === 'online' ? (
+        <OnlineSettings />
+      ) : (
+        <EmptyState>{'empty' in current ? current.empty : null}</EmptyState>
+      )}
     </Tabs>
   );
 }

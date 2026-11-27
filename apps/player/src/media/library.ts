@@ -25,6 +25,8 @@ export interface LibTrack {
   unplayable: boolean;
   /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
   addedAt?: number;
+  /** The file isn't where the library has it ("Can't find this file"). */
+  missing?: boolean;
 }
 
 export interface LibAlbum {
@@ -54,17 +56,38 @@ export interface LibVideo {
   /** From a `.nfo` or a sidecar beside the file. */
   overview?: string | null;
   genres?: string[];
-  /** Images in the library's cache (`usePoster`), from the art beside the file. */
+  /** Images in the library's cache (`usePoster`): the art beside the file, or for a backdrop that has none, a frame of the video. */
   poster?: string | null;
   backdrop?: string | null;
+  /** One frame of the video, small: an episode's picture. Made by the desktop app, behind everything else. */
+  still?: string | null;
+  /** Out of ten, and whose it is: "IMDb", "TMDB", or nothing for one from a `.nfo`. */
+  rating?: number | null;
+  ratingSource?: string | null;
+  /** TMDB knows this title (found by itself, or picked by the person). */
+  matched?: boolean;
   /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
   addedAt?: number;
+  /** The file isn't where the library has it ("Can't find this file"). */
+  missing?: boolean;
 }
 
 export interface LibSeries {
   id: string;
+  /** What its episodes are grouped under: the same from one reading of the library to the next, unlike `id`. */
+  key?: string;
   title: string;
   poster?: string | null;
+  /** The art in its folder, or else a frame of one of its episodes. */
+  backdrop?: string | null;
+  /** From `tvshow.nfo` in its folder. */
+  year?: number | null;
+  overview?: string | null;
+  genres?: string[];
+  rating?: number | null;
+  ratingSource?: string | null;
+  /** TMDB knows this series. */
+  matched?: boolean;
   episodes: LibVideo[];
 }
 
@@ -239,6 +262,15 @@ export function usePosters(hashes: readonly (string | null | undefined)[]): (str
   return hashes.map((h) => (h ? urls[h] : undefined));
 }
 
+/**
+ * A page shows these videos now (a film, a series' episodes): the desktop app makes the pictures they lack from
+ * the videos themselves, before the rest of the library's. `show` is the series' key when its page has no backdrop.
+ */
+export function wantFrames(paths: string[], show?: string): void {
+  if (!isDesktop() || paths.length === 0) return;
+  void invoke('frames_want', { paths, show: show ?? null }).catch(() => {});
+}
+
 const openedCovers = new Map<string, Promise<string | undefined>>();
 
 /** The cover of a song opened from Windows (`path`; empty for none), read once per file by the desktop app. */
@@ -267,6 +299,8 @@ export function toTrack(t: LibTrack, cover?: string): Track {
     number: t.number ?? undefined,
     year: t.year ?? undefined,
     cover,
+    // A file that can't be found: its row says so and doesn't play (the window offers to find it).
+    unavailable: t.missing ? strings.missing.short : undefined,
   };
 }
 

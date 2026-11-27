@@ -1,13 +1,17 @@
-import { useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import {
-  Button, IconCheck, IconFileVideo, IconMonitor, IconPlay, ListRow, Select, TextButton, TitleGrid, TitleTile, formatDuration, formatTime,
-  formatTimeLeft, type TitleTileShape,
+  Button, EpisodeCard, IconButton, IconCheck, IconFileVideo, IconMonitor, IconPlay, IconSearch, IconViewList, IconViewTiles, IconWarning, ListRow, MediaRow,
+  Select, TextButton, TitleGrid, TitleHeader, TitleTile, formatDuration, formatTime, formatTimeLeft, type TitleTileShape,
 } from '@pastel-studio/react';
 import { strings } from '../strings';
 import { tier } from './import/filters';
 import { progressOf, resumePoint, useHistory, type Play } from './history';
-import { usePoster, type LibSeries, type LibVideo } from './library';
+import { usePoster, usePosters, wantFrames, type LibSeries, type LibVideo } from './library';
+import { MatchDialog, type MatchTarget } from './MatchDialog';
+import { useMissing } from './missing';
+import { useOnline } from './online';
 import { usePlayback } from './playback';
+import { useRemembered } from './remember';
 import { isClip, leftOf, nextEpisode, seriesProgress, seriesState, videoName, videoState } from './streaming';
 
 type History = ReadonlyMap<string, Play>;
@@ -15,25 +19,36 @@ type History = ReadonlyMap<string, Play>;
 type TileRest = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title'>;
 
 /**
- * A film's or a series' title page: the poster, the name and its facts, the synopsis, Play, then what it holds. An
- * early form of Phase 5's details page: the poster and synopsis come from the art and `.nfo` beside the files.
+ * A film's or a series' title page: Back, then the design system's title header (a backdrop behind the poster, the
+ * name and its facts, the synopsis, Play), then what it holds. The pictures and words come from the art and `.nfo`
+ * beside the files; a title with no backdrop of its own gets a frame of its video.
  */
-function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onBack, backLabel, children }: {
+function TitlePage({ kind, title, facts, icon, poster, backdrop, overview, rating, match, play, also, note, onBack, backLabel, children }: {
   kind: string;
   title: string;
   facts: string[];
   icon: ReactNode;
-  /** An image hash from the library's cache. */
+  /** Image hashes from the library's cache. */
   poster?: string | null;
+  backdrop?: string | null;
   overview?: string | null;
-  play: { label: string; onClick: () => void } | null;
+  /** Out of ten, and whose it is ("IMDb", "TMDB"). */
+  rating?: { value: number; source?: string | null } | null;
+  /** What "Not the right title?" asks about; the link shows once a TMDB key is saved. */
+  match?: MatchTarget & { matched: boolean };
+  play: { label: string; icon?: ReactNode; onClick: () => void } | null;
   /** A second action beside Play ("Start over"). */
   also?: { label: string; onClick: () => void } | null;
+  /** A line over the actions: the file can't be found. */
+  note?: string;
   onBack: () => void;
   backLabel: string;
   children?: ReactNode;
 }) {
-  const image = usePoster(poster);
+  const [image, behind] = usePosters([poster, backdrop]);
+  const online = useOnline();
+  const [matching, setMatching] = useState(false);
+  const score = rating ? rating.value.toFixed(1) : '';
   return (
     <div className="mp-page">
       <div>
@@ -41,31 +56,35 @@ function TitlePage({ kind, title, facts, icon, poster, overview, play, also, onB
           {backLabel}
         </TextButton>
       </div>
-      <header className="mp-title">
-        <div className="mp-title-poster" aria-hidden="true">
-          {image ? <img src={image} alt="" draggable={false} /> : icon}
-        </div>
-        <div className="mp-title-main">
-          <span className="mp-title-kind">{kind}</span>
-          <h2 className="mp-title-name">{title}</h2>
-          {facts.length > 0 && (
-            <p className="mp-title-facts">
-              {facts.map((f) => (
-                <span key={f}>{f}</span>
-              ))}
-            </p>
-          )}
-          {overview ? <p className="mp-title-overview">{overview}</p> : undefined}
-          {play && (
-            <div className="mp-title-actions">
-              <Button variant="primary" icon={<IconPlay />} onClick={play.onClick}>
+      <TitleHeader
+        overline={kind}
+        title={title}
+        facts={facts}
+        summary={overview ?? undefined}
+        rating={rating ? { value: score, source: rating.source ?? undefined, label: strings.videos.ratingLabel(rating.source, score) } : undefined}
+        poster={image}
+        backdrop={behind}
+        // With a backdrop and no poster, the picture is the backdrop: no empty poster beside the name.
+        icon={behind ? undefined : icon}
+        actions={
+          play ? (
+            <>
+              <Button variant="primary" icon={play.icon ?? <IconPlay />} onClick={play.onClick}>
                 {play.label}
               </Button>
               {also ? <Button onClick={also.onClick}>{also.label}</Button> : undefined}
-            </div>
-          )}
-        </div>
-      </header>
+            </>
+          ) : undefined
+        }
+      >
+        {note ? <p className="mp-title-note">{note}</p> : undefined}
+        {match && online?.tmdbKey ? (
+          <div>
+            <TextButton onClick={() => setMatching(true)}>{match.matched ? strings.match.link : strings.match.linkFind}</TextButton>
+          </div>
+        ) : undefined}
+      </TitleHeader>
+      {match ? <MatchDialog target={matching ? match : null} onClose={() => setMatching(false)} /> : undefined}
       {children}
     </div>
   );
@@ -100,7 +119,8 @@ export function VideoTile({ video, history, id, shape = 'poster', title, subtitl
   subtitle?: string;
   current?: boolean;
 }) {
-  const image = usePoster(shape === 'wide' ? (video.backdrop ?? video.poster) : video.poster);
+  // A film with no poster of its own shows the middle of its backdrop (a frame of the video) rather than nothing.
+  const image = usePoster(shape === 'wide' ? (video.backdrop ?? video.still ?? video.poster) : (video.poster ?? video.backdrop ?? video.still));
   const play = history.get(video.path);
   return (
     <TitleTile
@@ -112,6 +132,7 @@ export function VideoTile({ video, history, id, shape = 'poster', title, subtitl
       progress={videoState(video, history) === 'progress' ? progressOf(play) : undefined}
       watched={play?.finished ?? false}
       current={current}
+      unavailable={video.missing ? strings.missing.short : undefined}
       data-tile-id={id ?? video.id}
       {...rest}
     />
@@ -120,7 +141,7 @@ export function VideoTile({ video, history, id, shape = 'poster', title, subtitl
 
 /** A series as a tile: its poster, how much of it was watched, and the mark once every episode was. */
 export function SeriesTile({ series, history, id, ...rest }: TileRest & { series: LibSeries; history: History; id?: string }) {
-  const poster = usePoster(series.poster);
+  const poster = usePoster(series.poster ?? series.backdrop);
   const state = seriesState(series, history);
   return (
     <TitleTile
@@ -131,6 +152,7 @@ export function SeriesTile({ series, history, id, ...rest }: TileRest & { series
       icon={<IconMonitor size={32} />}
       progress={state === 'progress' ? seriesProgress(series, history) : undefined}
       watched={state === 'watched'}
+      unavailable={series.episodes.every((e) => e.missing) ? strings.missing.short : undefined}
       data-tile-id={id ?? series.id}
       {...rest}
     />
@@ -164,7 +186,13 @@ export function SeriesGrid({ series, history, label, onOpen }: { series: LibSeri
 export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; backLabel: string; onBack: () => void }) {
   const playback = usePlayback();
   const history = useHistory();
+  const missing = useMissing();
   const left = resumePoint(history.get(video.path));
+  // No backdrop yet: one is made from the video, ahead of the rest of the library's.
+  const { path, backdrop, missing: gone } = video;
+  useEffect(() => {
+    if (!backdrop && !gone) wantFrames([path]);
+  }, [path, backdrop, gone]);
   return (
     <TitlePage
       kind={isClip(video) ? strings.videos.clip : strings.videos.film}
@@ -172,14 +200,48 @@ export function VideoTitle({ video, backLabel, onBack }: { video: LibVideo; back
       facts={movieFacts(video)}
       icon={<IconFileVideo size={48} />}
       poster={video.poster}
+      backdrop={video.backdrop}
       overview={video.overview}
-      play={{ label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(video) }}
-      also={left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(video, { fromStart: true }) } : null}
+      rating={video.rating ? { value: video.rating, source: video.ratingSource } : null}
+      match={video.missing ? undefined : { kind: 'movie', key: video.path, name: videoName(video), year: video.year, matched: !!video.matched }}
+      play={
+        video.missing
+          ? { label: strings.missing.find, icon: <IconSearch />, onClick: () => missing.find({ path: video.path, name: videoName(video) }) }
+          : { label: left > 0 ? strings.videos.resume(formatTime(left)) : strings.videos.play, onClick: () => playback.playVideo(video) }
+      }
+      also={!video.missing && left > 0 ? { label: strings.videos.startOver, onClick: () => playback.playVideo(video, { fromStart: true }) } : null}
+      note={video.missing ? strings.missing.short : undefined}
       onBack={onBack}
       backLabel={backLabel}
     />
   );
 }
+
+/** One episode as a card of the row: its picture (a frame of the video), number, name, length and how far it was watched. */
+function EpisodeTile({ episode, history, current, onOpen, ...rest }: TileRest & { episode: LibVideo; history: History; current: boolean; onOpen: () => void }) {
+  const image = usePoster(episode.still ?? episode.backdrop);
+  const play = history.get(episode.path);
+  const number = strings.videos.episodeNumber(episode.episode);
+  return (
+    <EpisodeCard
+      title={episode.episodeTitle || number}
+      overline={episode.episodeTitle ? number : undefined}
+      length={lengthOf(episode) || undefined}
+      summary={episode.overview ?? undefined}
+      image={image}
+      icon={<IconFileVideo size={28} />}
+      progress={videoState(episode, history) === 'progress' ? progressOf(play) : undefined}
+      watched={play?.finished ?? false}
+      current={current}
+      unavailable={episode.missing ? strings.missing.short : undefined}
+      data-episode-id={episode.id}
+      onClick={onOpen}
+      {...rest}
+    />
+  );
+}
+
+type EpisodeView = 'list' | 'row';
 
 /** Episodes with no season (most anime releases) are listed under this one. */
 const NO_SEASON = -1;
@@ -198,22 +260,50 @@ function seasonsOf(series: LibSeries): number[] {
 export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; backLabel: string; onBack: () => void }) {
   const playback = usePlayback();
   const history = useHistory();
+  const missing = useMissing();
   const seasons = useMemo(() => seasonsOf(series), [series]);
   const started = seriesState(series, history) !== 'unwatched';
   const next = started ? nextEpisode(series, history) : null;
   // Specials (season 0) are listed but a series opens on its first real season, or on the one it goes on with.
   const [season, setSeason] = useState(() => (next ? seasonOf(next) : (seasons.find((s) => s > 0) ?? seasons[0] ?? NO_SEASON)));
   const episodes = series.episodes.filter((e) => seasonOf(e) === season);
-  const first: LibVideo | undefined = next ?? episodes[0];
+  const first: LibVideo | undefined = next ?? episodes.find((e) => !e.missing);
   const resumes = !!first && resumePoint(history.get(first.path)) > 0;
   const realSeasons = seasons.filter((s) => s > 0).length;
+  const [view, setView] = useRemembered<EpisodeView>('pastelmedia_episode_view', 'list', (v) => v === 'list' || v === 'row');
+  // In the row, the episode the series goes on with is brought into view.
+  const goesOn = next?.id;
+  useEffect(() => {
+    if (view !== 'row' || !goesOn) return;
+    const card = document.querySelector<HTMLElement>(`[data-episode-id="${CSS.escape(goesOn)}"]`);
+    card?.scrollIntoView?.({ inline: 'start', block: 'nearest' });
+  }, [view, goesOn, season]);
+  const open = (e: LibVideo) => (e.missing ? missing.find({ path: e.path, name: e.fileName }) : playback.playVideo(e));
+  // The pictures the season shown lacks (and the series' backdrop) are made first, from the episodes themselves.
+  const lacking = episodes.filter((e) => !e.still && !e.missing).map((e) => e.path).join('\n');
+  const anyEpisode = episodes.find((e) => !e.missing)?.path ?? '';
+  const { key: showKey, backdrop: showBackdrop } = series;
+  useEffect(() => {
+    const paths = lacking ? lacking.split('\n') : [];
+    if (!showBackdrop && showKey && anyEpisode) wantFrames(paths.length > 0 ? paths : [anyEpisode], showKey);
+    else wantFrames(paths);
+  }, [lacking, anyEpisode, showKey, showBackdrop]);
   return (
     <TitlePage
       kind={strings.videos.series}
       title={series.title || strings.videos.unknownSeries}
-      facts={[realSeasons > 1 ? strings.videos.seasons(realSeasons) : '', strings.videos.episodes(series.episodes.length)].filter(Boolean)}
+      facts={[
+        series.year ? String(series.year) : '',
+        realSeasons > 1 ? strings.videos.seasons(realSeasons) : '',
+        strings.videos.episodes(series.episodes.length),
+        (series.genres ?? []).join(', '),
+      ].filter(Boolean)}
       icon={<IconMonitor size={48} />}
       poster={series.poster}
+      backdrop={series.backdrop}
+      overview={series.overview}
+      rating={series.rating ? { value: series.rating, source: series.ratingSource } : null}
+      match={series.key ? { kind: 'show', key: series.key, name: series.title, year: series.year, matched: !!series.matched } : undefined}
       play={
         first
           ? { label: (resumes ? strings.videos.resumeFrom : strings.videos.playFrom)(first.season, first.episode), onClick: () => playback.playVideo(first) }
@@ -222,35 +312,57 @@ export function SeriesTitle({ series, backLabel, onBack }: { series: LibSeries; 
       onBack={onBack}
       backLabel={backLabel}
     >
-      <section className="mp-episodes-section" aria-label={seasonName(season)}>
-        {seasons.length > 1 ? (
-          <div className="mp-season-pick">
-            <Select
-              value={season}
-              onChange={setSeason}
-              options={seasons.map((s) => ({ value: s, label: seasonName(s) }))}
-              ariaLabel={strings.videos.seasonLabel}
-            />
+      {/* The row names its own region; the list is named here. */}
+      <section className="mp-episodes-section" aria-label={view === 'list' ? seasonName(season) : undefined}>
+        <div className="mp-season-line">
+          {seasons.length > 1 ? (
+            <div className="mp-season-pick">
+              <Select
+                value={season}
+                onChange={setSeason}
+                options={seasons.map((s) => ({ value: s, label: seasonName(s) }))}
+                ariaLabel={strings.videos.seasonLabel}
+              />
+            </div>
+          ) : view === 'list' ? (
+            <h3 className="mp-heading-sm">{seasonName(season)}</h3>
+          ) : undefined}
+          <div className="mp-episode-views" role="group" aria-label={strings.videos.episodeViews}>
+            <IconButton label={strings.videos.viewList} pressed={view === 'list'} surface={0} onClick={() => setView('list')}>
+              <IconViewList size={18} />
+            </IconButton>
+            <IconButton label={strings.videos.viewRow} pressed={view === 'row'} surface={0} onClick={() => setView('row')}>
+              <IconViewTiles size={18} />
+            </IconButton>
           </div>
+        </div>
+        {view === 'row' ? (
+          <MediaRow title={seasonName(season)} headingLevel={3}>
+            {episodes.map((e) => (
+              <EpisodeTile key={e.id} episode={e} history={history} current={playback.video?.id === e.id} onOpen={() => open(e)} />
+            ))}
+          </MediaRow>
         ) : (
-          <h3 className="mp-heading-sm">{seasonName(season)}</h3>
-        )}
         <div role="list" className="mp-episodes">
           {episodes.map((e) => {
             const watched = videoState(e, history) === 'watched';
             return (
               <div role="listitem" key={e.id}>
                 <ListRow
-                  icon={watched ? <IconCheck size={18} /> : <IconPlay size={18} />}
+                  className={e.missing ? 'is-missing' : undefined}
+                  icon={e.missing ? <IconWarning size={18} /> : watched ? <IconCheck size={18} /> : <IconPlay size={18} />}
                   title={strings.videos.episodeRow(e.episode, e.episodeTitle)}
-                  description={[watched ? strings.videos.watched : leftLabel(e, history), e.fileName].filter(Boolean).join(' · ')}
+                  description={[lengthOf(e), e.missing ? strings.missing.short : watched ? strings.videos.watched : leftLabel(e, history), e.fileName]
+                    .filter(Boolean)
+                    .join(' · ')}
                   aria-current={playback.video?.id === e.id ? 'true' : undefined}
-                  onClick={() => playback.playVideo(e)}
+                  onClick={() => open(e)}
                 />
               </div>
             );
           })}
         </div>
+        )}
       </section>
     </TitlePage>
   );

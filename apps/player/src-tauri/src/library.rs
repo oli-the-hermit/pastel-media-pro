@@ -45,6 +45,8 @@ pub struct LibTrack {
     pub unplayable: bool,
     /// When it joined the library, in seconds since 1970; 0 for a file read without the database.
     pub added_at: i64,
+    /// The file isn't where the library has it ("Can't find this file").
+    pub missing: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -76,21 +78,49 @@ pub struct LibVideo {
     /// From a `.nfo` or a sidecar.
     pub overview: Option<String>,
     pub genres: Vec<String>,
-    /// Images (`library_image`), from the art beside the file.
+    /// Images (`library_image`): the art beside the file, or for a backdrop that has none, a frame of the video.
     pub poster: Option<String>,
     pub backdrop: Option<String>,
+    /// One frame of the video, small (`frames.rs`): an episode's picture.
+    pub still: Option<String>,
+    /// A frame was asked of this file already; not for the pages.
+    #[serde(skip)]
+    pub frames_tried: bool,
+    /// Out of ten, and whose it is: "IMDb" (through OMDb), "TMDB", or nothing for one from a `.nfo`.
+    pub rating: Option<f64>,
+    pub rating_source: Option<String>,
+    /// TMDB knows this title (found by itself, or picked by the person).
+    pub matched: bool,
     /// When it joined the library, in seconds since 1970. For a file read without the database (the web version's
     /// test library): when it was last changed, which stands in for it.
     pub added_at: i64,
+    /// The file isn't where the library has it ("Can't find this file").
+    pub missing: bool,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LibSeries {
     pub id: String,
+    /// What its episodes are grouped under (`parse::series_key`): the same from one reading to the next, unlike `id`.
+    pub key: String,
     pub title: String,
     pub poster: Option<String>,
+    /// The art in its folder, or else a frame of one of its episodes (`frames.rs`).
+    pub backdrop: Option<String>,
+    /// From `tvshow.nfo` in its folder.
+    pub year: Option<u16>,
+    pub overview: Option<String>,
+    pub genres: Vec<String>,
+    pub rating: Option<f64>,
+    /// "IMDb" (through OMDb), "TMDB", or nothing for a rating from `tvshow.nfo`.
+    pub rating_source: Option<String>,
+    /// TMDB knows this series.
+    pub matched: bool,
     pub episodes: Vec<LibVideo>,
+    /// A frame was asked for its backdrop already and gave none; not for the pages.
+    #[serde(skip)]
+    pub frame_tried: bool,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -194,6 +224,39 @@ pub fn refresh_places(app: &AppHandle) {
     *app.state::<LibraryState>().folders.lock().unwrap() = places;
 }
 
+/// An album of the library in memory: its artist ("" for a compilation) and title.
+pub fn album_named(app: &AppHandle, album_id: &str) -> Option<(String, String)> {
+    let state = app.state::<LibraryState>();
+    let lib = state.library.lock().unwrap();
+    lib.as_ref()?.albums.iter().find(|a| a.id == album_id).map(|a| (a.artist.clone(), a.title.clone()))
+}
+
+/// An album's cover is asked for again the next time a page wants it (one was found online).
+pub fn forget_cover(app: &AppHandle, album_id: &str) {
+    app.state::<LibraryState>().covers.lock().unwrap().remove(album_id);
+}
+
+/// Every album that had no cover is asked again the next time a page wants it.
+pub fn forget_missing_covers(app: &AppHandle) {
+    app.state::<LibraryState>().covers.lock().unwrap().retain(|_, cover| cover.is_some());
+}
+
+/// A series' episodes as the library in memory has them (file id, season, number), by the series' key.
+pub fn episodes_of(app: &AppHandle, key: &str) -> Vec<(i64, u32, u32)> {
+    let state = app.state::<LibraryState>();
+    let lib = state.library.lock().unwrap();
+    let Some(series) = lib.as_ref().and_then(|l| l.series.iter().find(|s| s.key == key)) else { return vec![] };
+    series.episodes.iter().filter_map(|e| Some((e.id.strip_prefix('v')?.parse().ok()?, e.season.unwrap_or(1), e.episode?))).collect()
+}
+
+/// Forgets the library built in memory but keeps the songs' covers: for a change that touches no file (a picture
+/// was made, a title was matched).
+pub fn forget_library(app: &AppHandle) {
+    let state = app.state::<LibraryState>();
+    state.generation.fetch_add(1, Ordering::SeqCst);
+    *state.library.lock().unwrap() = None;
+}
+
 /// Forgets the library built in memory: the next `library_get` reads the database again.
 pub fn invalidate(app: &AppHandle) {
     let state = app.state::<LibraryState>();
@@ -295,6 +358,7 @@ fn track_from_name(path: &Path) -> Option<(LibTrack, String)> {
         path: path.to_string_lossy().to_string(),
         unplayable: false,
         added_at: 0,
+        missing: false,
     };
     Some((track, String::new()))
 }
@@ -327,6 +391,7 @@ pub(crate) fn read_track(path: &Path) -> Option<(LibTrack, String)> {
         path: path.to_string_lossy().to_string(),
         unplayable,
         added_at: 0,
+        missing: false,
     };
     Some((track, if album_artist.is_empty() { artist } else { album_artist }))
 }
@@ -412,14 +477,16 @@ pub fn assemble(roots: Vec<String>, audio: Vec<(LibTrack, String)>, mut videos: 
         }
     }
     lib.movies.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()).then(a.year.cmp(&b.year)));
-    for (i, (_, mut show)) in series.into_iter().enumerate() {
+    for (i, (key, mut show)) in series.into_iter().enumerate() {
         show.episodes.sort_by(|a, b| (a.season.unwrap_or(0), a.episode.unwrap_or(0), &a.file_name).cmp(&(b.season.unwrap_or(0), b.episode.unwrap_or(0), &b.file_name)));
         let title = show.folder.unwrap_or_else(|| most_common(&show.titles));
         for e in &mut show.episodes {
             e.title = title.clone();
         }
         let poster = show.episodes.iter().find_map(|e| e.poster.clone());
-        lib.series.push(LibSeries { id: format!("s{i}"), title, poster, episodes: show.episodes });
+        // An episode's backdrop is the art of its show's folder.
+        let backdrop = show.episodes.iter().find_map(|e| e.backdrop.clone());
+        lib.series.push(LibSeries { id: format!("s{i}"), key, title, poster, backdrop, episodes: show.episodes, ..Default::default() });
     }
     (lib, sources)
 }
@@ -607,25 +674,34 @@ fn most_common(titles: &[String]) -> String {
     counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(b.0.len().cmp(&a.0.len())).then(b.0.cmp(a.0))).map(|(t, _)| t.to_string()).unwrap_or_default()
 }
 
+/// Whether a file of the library can't be found: a check for changes said so, or, for a file added on its own
+/// (no library folder is checked for it), it isn't there now.
+fn gone(flagged: bool, place: Option<i64>, path: &str) -> bool {
+    flagged || (place.is_none() && !Path::new(path).is_file())
+}
+
 fn file_name_of(path: &str) -> String {
     Path::new(path).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// The library as the pages show it, from the database: files that are there (missing ones wait for Phase 5's
-/// "Can't find this file"), the person's corrections over the `.nfo` over the file name.
+/// The library as the pages show it, from the database: every file it holds, the ones that can't be found marked
+/// `missing` ("Can't find this file"); the person's corrections over the `.nfo` over the file name.
 pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, Vec<PathBuf>>)> {
     let started = std::time::Instant::now();
     let roots: Vec<String> = crate::import::places(conn).iter().map(|p| shown(&p.root)).collect();
     let audio = conn
         .prepare(
-            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem, f.added_at
-             FROM tracks t JOIN files f ON f.id = t.file_id WHERE f.missing = 0",
+            "SELECT f.id, f.path, t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.duration_ms, t.problem, f.added_at,
+                    f.missing, f.place_id
+             FROM tracks t JOIN files f ON f.id = t.file_id",
         )?
         .query_map([], |r| {
+            let path: String = r.get(1)?;
             Ok((
                 LibTrack {
                     id: format!("t{}", r.get::<_, i64>(0)?),
-                    path: r.get(1)?,
+                    missing: gone(r.get(12)?, r.get(13)?, &path),
+                    path,
                     title: r.get(2)?,
                     artist: r.get(3)?,
                     album: r.get(5)?,
@@ -644,12 +720,16 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .prepare(
             "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
                     o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
-                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at
+                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at, f.missing, f.place_id, v.still, v.frames_tried,
+                    m.rating,
+                    (SELECT rating FROM metadata WHERE file_id = f.id AND source = 'omdb'),
+                    (SELECT rating FROM metadata WHERE file_id = f.id AND source = 'tmdb'),
+                    (SELECT external_id FROM metadata WHERE file_id = f.id AND source = 'tmdb')
              FROM videos v JOIN files f ON f.id = v.file_id
              LEFT JOIN places p ON p.id = f.place_id
              LEFT JOIN overrides o ON o.file_id = f.id
-             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)
-             WHERE f.missing = 0",
+             LEFT JOIN metadata m ON m.id = (SELECT id FROM metadata WHERE file_id = f.id AND source <> 'omdb'
+                                             ORDER BY CASE source WHEN 'nfo' THEN 0 WHEN 'sidecar' THEN 1 ELSE 2 END LIMIT 1)",
         )?
         .query_map([], |r| {
             let path: String = r.get(1)?;
@@ -672,6 +752,13 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                 Kind::Episode => (over_title.clone().unwrap_or_else(|| parsed_title.clone()), meta_title.or(parsed.episode_title.clone())),
             };
             let year = r.get::<_, Option<u16>>(4)?.or(parsed.year).or(if kind == Kind::Movie { r.get(16)? } else { None });
+            // IMDb's rating when OMDb gave one, else TMDB's score, else what a `.nfo` says.
+            let (own, imdb, tmdb): (Option<f64>, Option<f64>, Option<f64>) = (r.get(25)?, r.get(26)?, r.get(27)?);
+            let (rating, rating_source) = match (imdb, tmdb) {
+                (Some(r), _) => (Some(r), Some("IMDb".to_string())),
+                (None, Some(r)) => (Some(r), Some("TMDB".to_string())),
+                (None, None) => (own, None),
+            };
             Ok(VideoEntry {
                 video: LibVideo {
                     id: format!("v{}", r.get::<_, i64>(0)?),
@@ -681,9 +768,15 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     episode: r.get::<_, Option<u32>>(6)?.or(parsed.episode),
                     episode_title,
                     file_name: file_name_of(&path),
+                    missing: gone(r.get(21)?, r.get(22)?, &path),
                     path,
                     poster: r.get(9)?,
                     backdrop: r.get(10)?,
+                    still: r.get(23)?,
+                    frames_tried: r.get(24)?,
+                    rating,
+                    rating_source,
+                    matched: r.get::<_, Option<String>>(28)?.is_some(),
                     duration: r.get::<_, Option<i64>>(11)?.map(|d| d as f64 / 1000.0),
                     width: r.get(12)?,
                     height: r.get(13)?,
@@ -698,8 +791,68 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let (mut lib, sources) = assemble(roots, audio, videos);
+    describe_series(conn, &mut lib.series)?;
+    // An album with no year in its tags takes the one found online with its cover.
+    if lib.albums.iter().any(|a| a.year.is_none()) {
+        let years: HashMap<String, u32> = conn
+            .prepare("SELECT key, year FROM album_art WHERE year IS NOT NULL")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for a in lib.albums.iter_mut().filter(|a| a.year.is_none()) {
+            a.year = years.get(&crate::musicbrainz::album_key(&a.artist, &a.title)).copied();
+        }
+    }
     lib.scan_ms = started.elapsed().as_millis() as u64;
     Ok((lib, sources))
+}
+
+/// What is known of each series as a whole (`shows`): its facts from `tvshow.nfo`, and a backdrop when its folder
+/// has no art for one (a frame of an episode, `frames.rs`).
+fn describe_series(conn: &Connection, series: &mut [LibSeries]) -> rusqlite::Result<()> {
+    type Row = (String, String, Option<u16>, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>, Option<String>);
+    let rows: Vec<Row> = conn
+        .prepare("SELECT key, source, year, overview, genres, rating, poster, backdrop, title FROM shows")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    // The folder's own words and art first, then what was looked up, then a frame. OMDb's row only holds a rating.
+    let rank = |source: &str| match source {
+        "nfo" => 0,
+        "frame" => 2,
+        _ => 1,
+    };
+    for s in series.iter_mut() {
+        let mut mine: Vec<&Row> = rows.iter().filter(|r| r.0 == s.key).collect();
+        mine.sort_by_key(|r| rank(&r.1));
+        let rated = |source: &str| mine.iter().find(|r| r.1 == source).and_then(|r| r.5);
+        (s.rating, s.rating_source) = match (rated("omdb"), rated("tmdb")) {
+            (Some(r), _) => (Some(r), Some("IMDb".to_string())),
+            (None, Some(r)) => (Some(r), Some("TMDB".to_string())),
+            (None, None) => (rated("nfo"), None),
+        };
+        s.matched = mine.iter().any(|r| r.1 == "tmdb");
+        let mut named = false;
+        for (_, source, year, overview, genres, _, poster, backdrop, title) in mine.into_iter().filter(|r| r.1 != "omdb") {
+            // Its name as `tvshow.nfo` or TMDB writes it, over the folder's
+            if let Some(t) = title.as_ref().filter(|t| !named && !t.is_empty()) {
+                s.title = t.clone();
+                named = true;
+            }
+            s.year = s.year.or(*year);
+            s.overview = s.overview.take().or_else(|| overview.clone());
+            if s.genres.is_empty() {
+                s.genres = genres.as_deref().map(|g| g.split(", ").map(String::from).collect()).unwrap_or_default();
+            }
+            s.poster = s.poster.take().or_else(|| poster.clone());
+            s.backdrop = s.backdrop.take().or_else(|| backdrop.clone());
+            s.frame_tried |= source == "frame";
+        }
+        if named {
+            for e in &mut s.episodes {
+                e.title = s.title.clone();
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The library, read from the database on the first call after a start or a change (a few milliseconds for a
@@ -730,6 +883,10 @@ pub async fn library_get(app: AppHandle) -> Result<Library, String> {
     if state.generation.load(Ordering::SeqCst) == generation {
         *state.cover_sources.lock().unwrap() = sources;
         *state.library.lock().unwrap() = Some(lib.clone());
+        // What it still lacks a picture for is made behind everything else, from the videos themselves; titles not
+        // asked about yet are looked up, when the person switched that on.
+        crate::frames::after_library(&app, &lib);
+        crate::online_work::after_library(&app, &lib);
     }
     Ok(lib)
 }
@@ -759,14 +916,22 @@ pub fn cover_thumbnail(files: &[PathBuf]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// An album's cover as a small JPEG data URL (256 px), or nothing. Made once per album.
+/// An album's cover as a small JPEG data URL (256 px), or nothing. Made once per album: from its files or folder,
+/// or else the one found online before (`musicbrainz.rs`; an album with neither may be looked up there, when the
+/// person switched that on).
 #[tauri::command]
-pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: String) -> Result<Option<String>, String> {
+pub async fn library_cover(app: AppHandle, state: tauri::State<'_, LibraryState>, album_id: String) -> Result<Option<String>, String> {
     if let Some(c) = state.covers.lock().unwrap().get(&album_id) {
         return Ok(c.clone());
     }
     let files = state.cover_sources.lock().unwrap().get(&album_id).cloned().unwrap_or_default();
-    let url = cover_url(files).await?;
+    let url = match cover_url(files).await? {
+        Some(own) => Some(own),
+        None => {
+            let (app, id) = (app.clone(), album_id.clone());
+            tauri::async_runtime::spawn_blocking(move || crate::musicbrainz::cover_for(&app, &id)).await.map_err(|e| e.to_string())?
+        }
+    };
     state.covers.lock().unwrap().insert(album_id, url.clone());
     Ok(url)
 }
@@ -849,8 +1014,11 @@ mod tests {
         .unwrap();
         let (lib, sources) = from_db(&conn).unwrap();
         assert_eq!(lib.roots, vec![r"D:\Media"]);
-        assert_eq!(lib.movies.len(), 1, "a missing file is left out");
-        let heat = &lib.movies[0];
+        assert_eq!(lib.movies.len(), 2, "a missing file is kept, and says so");
+        let gone = lib.movies.iter().find(|m| m.id == "v4").unwrap();
+        assert!(gone.missing);
+        let heat = lib.movies.iter().find(|m| m.id == "v1").unwrap();
+        assert!(!heat.missing && !lib.tracks[0].missing);
         assert_eq!((heat.title.as_str(), heat.overview.as_deref(), heat.genres.len(), heat.duration), ("Heat", Some("A thief."), 2, Some(6000.0)));
         assert_eq!(heat.id, "v1");
         assert_eq!(lib.series[0].title, "Dark");
@@ -1026,7 +1194,7 @@ mod tests {
     #[test]
     fn a_compilation_in_one_folder_is_one_album_with_no_artist_of_its_own() {
         let track = |title: &str, artist: &str, album: &str, path: &str| {
-            (LibTrack { id: String::new(), title: title.into(), artist: artist.into(), album: album.into(), number: None, disc: None, year: None, duration: 1.0, path: path.into(), unplayable: false, added_at: 0 }, artist.to_string())
+            (LibTrack { id: String::new(), title: title.into(), artist: artist.into(), album: album.into(), number: None, disc: None, year: None, duration: 1.0, path: path.into(), unplayable: false, added_at: 0, missing: false }, artist.to_string())
         };
         let (lib, _) = assemble(
             vec![],

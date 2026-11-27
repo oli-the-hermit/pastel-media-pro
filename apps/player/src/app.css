@@ -179,8 +179,21 @@ body {
 }
 
 .mp-season-pick {
-  align-self: flex-start;
   min-width: 200px;
+}
+
+/* A season's line: which season at its start, how its episodes are shown at its end (ux.md §6). */
+.mp-season-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ps-space-12);
+}
+
+.mp-episode-views {
+  display: flex;
+  gap: var(--ps-space-4);
+  margin-inline-start: auto;
 }
 
 .mp-heading-sm {
@@ -251,6 +264,87 @@ body {
 .mp-folder-gone {
   font-size: var(--ps-font-size-xs);
   color: var(--ps-warning);
+}
+
+/* Settings → Online: what goes online, a key that is saved, and the title picker ("Not the right title?"). */
+.mp-online-privacy {
+  margin: 0;
+  color: var(--ps-text-2);
+  max-width: 70ch;
+}
+
+.mp-online-saved {
+  margin: 0;
+  color: var(--ps-text-1);
+}
+
+.mp-online-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-8);
+}
+
+.mp-match-search {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ps-space-8);
+}
+
+.mp-match-search > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-match-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-4);
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.mp-match-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ps-space-8);
+}
+
+/* A settings tab made of two parts (Library: the folders, then the pictures kept). */
+.mp-settings-parts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ps-space-24);
+}
+
+/* Settings → Library: how much the cache holds. */
+.mp-storage-use {
+  margin: 0;
+  color: var(--ps-text-1);
+}
+
+/* "Can't find this file": the dialog's name and old path, the line on a title page, an episode's row. */
+.mp-missing-name {
+  margin: 0;
+  font-weight: var(--ps-font-weight-medium);
+  color: var(--ps-text-1);
+  overflow-wrap: anywhere;
+}
+
+.mp-missing-path {
+  margin: 0;
+  font-size: var(--ps-font-size-sm);
+  color: var(--ps-text-3);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.mp-title-note {
+  margin: 0 0 var(--ps-space-8);
+  color: var(--ps-warning);
+}
+
+.mp-episodes .is-missing {
+  color: var(--ps-text-3);
 }
 
 /* The player when a file can't be played: its name, the reason under Details, Open files. */
@@ -379,10 +473,6 @@ body {
   border-radius: var(--ps-radius-3xl);
   background: var(--ps-surface-1);
 }
-.mp-songs-more {
-  height: var(--ps-space-24);
-}
-
 /* A dialog's form (a playlist's name and description): its fields, then its buttons. */
 .mp-form {
   display: flex;

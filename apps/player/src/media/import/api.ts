@@ -66,6 +66,23 @@ export function pickFiles(): Promise<string[]> {
   return invoke<string[]>('import_pick_files', { title: strings.library.addFilesTitle, audio: strings.player.audioFiles, video: strings.player.videoFiles });
 }
 
+/** Windows' file dialog for one file, under a title of its own: the file picked, or `null` when cancelled. */
+export async function pickFile(title: string): Promise<string | null> {
+  const picked = await invoke<string[]>('import_pick_files', { title, audio: strings.player.audioFiles, video: strings.player.videoFiles });
+  return picked[0] ?? null;
+}
+
+/** Windows' folder dialog under a title of its own. */
+export function pickFolderFor(title: string): Promise<string | null> {
+  return invoke<string | null>('import_pick_folder', { title });
+}
+
+/** A library folder that was moved or renamed follows to `folder`, then is checked for changes. */
+export async function relinkPlace(placeId: number, folder: string): Promise<void> {
+  await listen();
+  put(await invoke<Job>('place_relink', { placeId, folder }));
+}
+
 /** Finds what's in a folder, or describes some files: `onEvent` gets the rows, then their lengths. */
 export async function discover(source: { folder: string } | { files: string[] }, onEvent: (e: DiscoverEvent) => void): Promise<DiscoverStart> {
   const { Channel, invoke: call } = await core();

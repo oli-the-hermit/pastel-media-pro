@@ -44,7 +44,8 @@ describe('Streaming title pages', () => {
     const user = await open('movies');
     await user.click(screen.getByRole('button', { name: /Heat/ }));
     expect(screen.getByRole('heading', { name: 'Heat' })).toBeTruthy();
-    expect(screen.getByText('1995')).toBeTruthy();
+    // The facts are one line: the year, the length, the file
+    expect(screen.getByText(/1995/)).toBeTruthy();
     expect(screen.getByRole('button', { name: strings.videos.play })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: strings.videos.allMovies }));
     expect(screen.getByRole('list', { name: strings.streaming.views.movies.label })).toBeTruthy();
@@ -65,7 +66,7 @@ describe('Streaming title pages', () => {
     expect(tiles).toHaveLength(1);
     await user.click(tiles[0]);
     expect(screen.getByRole('heading', { name: 'Dark' })).toBeTruthy();
-    expect(screen.getByText(strings.videos.seasons(2))).toBeTruthy();
+    expect(screen.getByText(new RegExp(strings.videos.seasons(2)))).toBeTruthy();
     expect(screen.getByRole('button', { name: strings.videos.playFrom(1, 1) })).toBeTruthy();
     const episodes = () => within(screen.getByRole('region', { name: /^Season|^Specials/ })).getAllByRole('listitem').map((li) => li.textContent);
     expect(episodes()[0]).toContain(strings.videos.episodeRow(1, 'Secrets'));
@@ -75,5 +76,22 @@ describe('Streaming title pages', () => {
     await user.click(screen.getByRole('option', { name: strings.videos.season(2) }));
     expect(episodes()).toHaveLength(1);
     expect(episodes()[0]).toContain('Beginnings and Endings');
+  });
+
+  it('shows a season as a row of pictures too, and remembers which way was picked', async () => {
+    const user = await open('series');
+    await user.click(within(screen.getByRole('list', { name: strings.streaming.views.series.label })).getAllByRole('button')[0]);
+    const views = screen.getByRole('group', { name: strings.videos.episodeViews });
+    expect(within(views).getByRole('button', { name: strings.videos.viewList }).getAttribute('aria-pressed')).toBe('true');
+    await user.click(within(views).getByRole('button', { name: strings.videos.viewRow }));
+    // The row: one card per episode of the season, named by its number and its own title; no list beside it
+    const row = screen.getByRole('region', { name: strings.videos.season(1) });
+    const cards = within(row).getAllByRole('button').filter((b) => b.className.includes('ps-episode-card'));
+    expect(cards).toHaveLength(2);
+    expect(cards[0].textContent).toContain('Secrets');
+    expect(cards[0].textContent).toContain(strings.videos.episodeNumber(1));
+    expect(cards[1].textContent).toContain(strings.videos.episodeNumber(2));
+    expect(screen.queryAllByRole('listitem').filter((li) => li.closest('.mp-episodes'))).toHaveLength(0);
+    expect(window.localStorage.getItem('pastelmedia_episode_view')).toBe('"row"');
   });
 });

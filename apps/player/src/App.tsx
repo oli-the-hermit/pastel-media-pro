@@ -10,6 +10,7 @@ import { MusicPage } from './media/MusicPage';
 import { pickFiles, useOpenedFiles } from './media/opened';
 import { PlaybackProvider, usePlayback } from './media/playback';
 import { PlayerPage, useNowPlayingTrack } from './media/PlayerPage';
+import { MissingDialogs } from './media/missing';
 import { PlaylistDialogs } from './media/PlaylistActions';
 import { PlaylistsPage } from './media/PlaylistsPage';
 import { StreamingPage } from './media/StreamingPage';
@@ -141,6 +142,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
     <NotifyContext.Provider value={showToast}>
       <ImportProvider>
       <PlaylistDialogs>
+      <MissingDialogs>
       <AppShell
         surface={video && page === 'player' && playback.pictureReady ? 'transparent' : 'solid'}
         nav={
@@ -180,6 +182,7 @@ function Main({ launchedWithFiles }: { launchedWithFiles: boolean }) {
           </AppShellPage>
         ))}
       </AppShell>
+      </MissingDialogs>
       </PlaylistDialogs>
       </ImportProvider>
     </NotifyContext.Provider>

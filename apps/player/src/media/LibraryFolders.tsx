@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, EmptyState, Field, IconButton, IconClose, IconFile, IconFolder, IconFolderPlus, IconRefresh, Switch } from '@pastel-studio/react';
+import { Button, EmptyState, Field, IconButton, IconClose, IconFile, IconFolder, IconFolderPlus, IconRefresh, IconSearch, Switch } from '@pastel-studio/react';
 import { updateSettings, useSettings } from '../settings';
 import { useNotify } from '../shell/notify';
 import { strings } from '../strings';
-import { isOver, places, removePlace, rescan, useJobs, type Place } from './import/api';
+import { isOver, pickFolderFor, places, relinkPlace, removePlace, rescan, useJobs, type Place } from './import/api';
 import { useImportFlow, type AddPreset } from './import/ImportFlow';
 import { canAddFolders } from './library';
 
@@ -85,6 +85,24 @@ export function LibraryFoldersSettings() {
                   <span className="mp-folder-facts">{strings.library.folderFacts(p.files, p.missing, strings.library.presets[p.preset] ?? p.preset)}</span>
                   {p.found ? undefined : <span className="mp-folder-gone">{strings.library.gone}</span>}
                 </span>
+                {p.found ? undefined : (
+                  <IconButton
+                    label={strings.missing.findFolder(folderName(p.path))}
+                    onClick={() =>
+                      void pickFolderFor(strings.missing.findFolderTitle(folderName(p.path)))
+                        .then((folder) => {
+                          if (!folder) return;
+                          return relinkPlace(p.id, folder).then(() => {
+                            reload();
+                            showToast(strings.missing.folderFound(folderName(folder)), 'success');
+                          });
+                        })
+                        .catch(failed)
+                    }
+                  >
+                    <IconSearch size={16} />
+                  </IconButton>
+                )}
                 <IconButton label={strings.library.rescan(folderName(p.path))} disabled={!p.found} onClick={() => void rescan(p.id).catch(failed)}>
                   <IconRefresh size={16} />
                 </IconButton>

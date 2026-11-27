@@ -37,6 +37,9 @@ export function AboutView() {
         <p>{strings.about.licence}</p>
         <p className="mp-about-url">{strings.about.source}</p>
       </Field>
+      <Field label={strings.about.tmdbLabel} group>
+        <p>{strings.about.tmdb}</p>
+      </Field>
       <Field label={strings.about.thirdPartyLabel} group>
         <p>{strings.about.libmpv}</p>
         <div className="mp-about-actions">

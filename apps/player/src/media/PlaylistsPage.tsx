@@ -5,11 +5,13 @@ import {
 } from '@pastel-studio/react';
 import { useNotify } from '../shell/notify';
 import { strings } from '../strings';
-import { toTrack, useCover, useCovers, type LibTrack, type Library } from './library';
-import { byName, firstFew, matcher } from './listing';
+import { toTrack, useCovers, type LibTrack, type Library } from './library';
+import { byName, firstFew, matcher, shuffled } from './listing';
+import { useMissing } from './missing';
 import { useAddToPlaylist, usePlaylistDialogs } from './PlaylistActions';
 import { addToPlaylist, setPlaylistSongs, usePlaylists, type Playlist } from './playlists';
 import { usePlayback } from './playback';
+import { useQueueActions } from './QueueActions';
 import { useRemembered } from './remember';
 import { SortMenu } from './SortMenu';
 import { useDrillIn } from './useDrillIn';
@@ -26,24 +28,30 @@ interface Songs {
 /** A playlist's songs that the library has right now, in the playlist's order. */
 const songsOf = (playlist: Playlist, songs: Songs) => playlist.paths.map((p) => songs.byPath.get(p)).filter((t): t is LibTrack => !!t);
 
-const shuffled = <T,>(items: T[]): T[] => {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+/** The first few different albums among some songs: where a playlist's pictures come from. */
+function albumsOf(tracks: LibTrack[], songs: Songs, few = 4): string[] {
+  const ids: string[] = [];
+  for (const t of tracks) {
+    const id = songs.albumOf.get(t.id);
+    if (id && !ids.includes(id)) ids.push(id);
+    if (ids.length === few) break;
   }
-  return out;
-};
+  return ids;
+}
 
-/** A playlist as a tile: the cover of its first song, its name and how many songs it holds. */
+/**
+ * A playlist as a tile: its name, how many songs it holds, and the covers of its first four different albums as
+ * a mosaic (the first one alone when there are fewer).
+ */
 function PlaylistTile({ playlist, songs, onOpen }: { playlist: Playlist; songs: Songs; onOpen: () => void }) {
   const tracks = songsOf(playlist, songs);
-  const cover = useCover(tracks[0] ? (songs.albumOf.get(tracks[0].id) ?? '') : '');
+  const albums = albumsOf(tracks, songs);
+  const covers = useCovers(albums);
   return (
     <TitleTile
       title={playlist.name}
       subtitle={strings.playlists.songs(tracks.length)}
-      image={cover}
+      images={albums.map((id) => covers[id]).filter(Boolean)}
       icon={<IconQueue size={28} />}
       data-tile-id={String(playlist.id)}
       onClick={onOpen}
@@ -61,6 +69,8 @@ function OpenPlaylist({ playlist, library, songs, onBack }: { playlist: Playlist
   const dialogs = usePlaylistDialogs();
   const notify = useNotify();
   const addTo = useAddToPlaylist(playlist.id);
+  const queueThem = useQueueActions();
+  const missing = useMissing();
   const [query, setQuery] = useState('');
   const tracks = useMemo(() => songsOf(playlist, songs), [playlist, songs]);
   const covers = useCovers(useMemo(() => [...new Set(tracks.map((t) => songs.albumOf.get(t.id) ?? '').filter(Boolean))], [tracks, songs]));
@@ -73,6 +83,7 @@ function OpenPlaylist({ playlist, library, songs, onBack }: { playlist: Playlist
       artist: '',
       kind: 'Playlist',
       cover: tracks[0] ? covers[songs.albumOf.get(tracks[0].id) ?? ''] : undefined,
+      covers: albumsOf(tracks, songs).map((id) => covers[id]).filter(Boolean),
       description: playlist.description || undefined,
       tracks: tracks.map((t, i) => ({
         ...toTrack(t, covers[songs.albumOf.get(t.id) ?? '']),
@@ -138,6 +149,7 @@ function OpenPlaylist({ playlist, library, songs, onBack }: { playlist: Playlist
         onPlayPause={() => (playingHere ? playback.engine.toggle() : playback.playTracks(tracks, 0))}
         onShuffleChange={tracks.length > 1 ? () => playback.playTracks(shuffled(tracks), 0) : undefined}
         actions={[
+          ...queueThem(tracks),
           { key: 'rename', label: strings.playlists.rename, icon: <IconEdit size={16} />, onSelect: () => dialogs.edit(playlist) },
           { key: 'delete', label: strings.playlists.delete, icon: <IconTrash size={16} />, danger: true, onSelect: () => dialogs.remove(playlist) },
         ]}
@@ -148,11 +160,17 @@ function OpenPlaylist({ playlist, library, songs, onBack }: { playlist: Playlist
           else playback.playTracks(tracks, tracks.findIndex((x) => x.id === t.id));
         }}
         onPause={playback.engine.pause}
+        onUnavailable={(t) => {
+          const song = tracks.find((x) => x.id === t.id);
+          if (song) missing.find({ path: song.path, name: song.title });
+        }}
         playlist={{ onReorder: reorder }}
         rowActions={(t) => {
-          const path = pathOf(t.id);
-          if (!path) return [];
+          const song = tracks.find((x) => x.id === t.id);
+          if (!song) return [];
+          const path = song.path;
           return [
+            ...(song.missing ? missing.menu({ path, name: song.title }) : queueThem([song])),
             { key: 'remove', label: strings.playlists.remove, icon: <IconTrash size={16} />, onSelect: () => save(playlist.paths.filter((p) => p !== path)) },
             ...addTo([path]),
           ];

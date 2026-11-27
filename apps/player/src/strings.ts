@@ -93,6 +93,9 @@ export const strings = {
     thirdPartyLabel: 'Third-party software',
     libmpv:
       'Media plays through libmpv and FFmpeg, under the GNU Lesser General Public License 2.1 or later. They ship as libmpv-2.dll beside the app, which you may replace with your own build. The notices say where their source code is.',
+    /** TMDB's terms ask for this line where the app credits its sources. */
+    tmdbLabel: 'Film and series information',
+    tmdb: 'This product uses the TMDB API but is not endorsed or certified by TMDB. It is only asked when you save your own key in Settings, under Online.',
     showNotices: 'Third-party notices',
     showLgpl: 'LGPL 2.1 text',
     textMissing: 'This text could not be loaded. It is also in the app’s source repository, under apps/player/public/licenses.',
@@ -102,6 +105,7 @@ export const strings = {
     tabs: {
       general: { label: 'General' },
       library: { label: 'Library' },
+      online: { label: 'Online' },
       playback: { label: 'Playback', empty: 'How music and videos play will be set here.' },
       subtitles: { label: 'Subtitles', empty: 'How subtitles look and which languages come first will be set here.' },
       transcription: { label: 'Transcription', empty: 'The speech models and where they are kept will be set here.' },
@@ -248,6 +252,122 @@ export const strings = {
     emptyPlaylist: 'No songs yet. Search above to add some, or use “Add to playlist” on a song or an album in Music.',
     failed: (reason: string) => `This could not be saved: ${reason}`,
   },
+  /** Settings → Online: looking titles up. */
+  online: {
+    privacy:
+      'Pastel Media Pro works without the internet. With a TMDB key it looks your films and series up at The Movie Database: it sends a title and a year (or an id from a file beside the video), and brings back the name, the description, the genres, a score and pictures, which are kept on this computer. Nothing else leaves it, and your files are never changed.',
+    tmdb: {
+      label: 'TMDB key',
+      hint: 'Free at themoviedb.org: sign in, open Settings, then API. Paste the API key or the read access token here. It is kept in Windows’ credential manager, not in the app.',
+      saved: 'The key was saved. Your titles are being looked up.',
+      removed: 'The key was removed. What was found stays.',
+      refused: 'TMDB did not accept this key. Check that all of it was pasted.',
+    },
+    omdb: {
+      label: 'OMDb key (optional, for IMDb ratings)',
+      hint: 'TMDB has its own score. With a free key from omdbapi.com (1,000 lookups a day), a title shows its IMDb rating instead.',
+      saved: 'The key was saved. Ratings come in as titles are looked up again.',
+      removed: 'The key was removed.',
+      refused: 'OMDb did not accept this key.',
+    },
+    keySaved: 'A key is saved.',
+    removeKey: 'Remove the key',
+    saveKey: 'Save',
+    checking: 'Checking…',
+    showKey: 'Show the key',
+    hideKey: 'Hide the key',
+    progressLabel: 'Your titles',
+    matched: (n: number) => (n === 1 ? '1 title found' : `${n.toLocaleString()} titles found`),
+    unmatched: (n: number) => (n === 1 ? '1 not found' : `${n.toLocaleString()} not found`),
+    waiting: (n: number) => (n === 1 ? '1 waiting' : `${n.toLocaleString()} waiting`),
+    lookUpNow: 'Look up now',
+    troubleKey: 'TMDB no longer accepts the key. Remove it and save a new one.',
+    troubleOffline: 'No answer from TMDB. Lookups go on the next time you open your library, or with Look up now.',
+    languageLabel: 'Language of titles and descriptions',
+    languageHint: 'When TMDB has no text in it, a title keeps what it has. Changing it looks everything up again.',
+    languages: {
+      'en-US': 'English',
+      'es-ES': 'Spanish (Spain)',
+      'es-MX': 'Spanish (Latin America)',
+      'fr-FR': 'French',
+      'de-DE': 'German',
+      'it-IT': 'Italian',
+      'pt-BR': 'Portuguese (Brazil)',
+      'pt-PT': 'Portuguese (Portugal)',
+      'ja-JP': 'Japanese',
+    } as Record<string, string>,
+    albumCovers: 'Look for missing album covers',
+    albumCoversHint:
+      'For albums with no cover in their files or folder, as you browse them. It asks MusicBrainz and the Cover Art Archive, with no key, and sends only the artist and the album’s name.',
+    foldersLabel: 'Folders to look up',
+    foldersHint: 'Switch a folder off to keep its names to yourself (home videos, for one).',
+    browserOnly: 'The desktop app looks titles up.',
+    reading: 'Reading…',
+    failed: (reason: string) => `This could not be done: ${reason}`,
+  },
+  /** "Not the right title?", on a film's or a series' page. */
+  match: {
+    title: 'Which title is this?',
+    /** The link on the page: for a title TMDB matched, and for one it did not. */
+    link: 'Not the right title?',
+    linkFind: 'Find this title online',
+    searchLabel: (kind: 'movie' | 'show') => (kind === 'movie' ? 'Search films at TMDB' : 'Search series at TMDB'),
+    search: 'Search',
+    searching: 'Searching…',
+    nothing: 'TMDB found nothing by that name. Try its original title, or fewer words.',
+    results: 'Titles found',
+    none: 'This has no match',
+    cancel: 'Cancel',
+    saved: 'Saved. This title keeps your choice.',
+    removed: 'Saved. This title will not be looked up again.',
+    failed: (reason: string) => `This could not be done: ${reason}`,
+  },
+  /** Settings → Storage: the pictures the app keeps. */
+  storage: {
+    picturesLabel: 'Pictures kept on this computer',
+    picturesHint:
+      'Backdrops and episode pictures taken from your videos, and the art found beside them. They are made once and kept, so pages open fast. Your own files are never changed.',
+    use: (size: string, pictures: number) => `${size} in ${pictures === 1 ? '1 picture' : `${pictures.toLocaleString()} pictures`}`,
+    reading: 'Measuring…',
+    capLabel: 'Room they may take',
+    capHint: 'Over this, the oldest episode pictures go first. They come back when you open their series.',
+    clear: 'Clear cache',
+    cleared: 'The cache was cleared. Pictures are made again for what you open.',
+    browserOnly: 'The desktop app keeps pictures on your computer.',
+    failed: (reason: string) => `This could not be done: ${reason}`,
+  },
+  /** A file of the library that isn't where the library has it. */
+  missing: {
+    title: "Can't find this file",
+    /** On a row or a tile, in place of its second line. */
+    short: "Can't find this file",
+    why: 'It may have been moved, renamed or deleted, or it is on a drive that is not connected. Your playlists and where you left it are kept until you remove it.',
+    find: 'Find it…',
+    remove: 'Remove from library',
+    pickTitle: (name: string) => `Where is “${name}” now?`,
+    found: (name: string) => `“${name}” is back in your library.`,
+    removed: (name: string) => `“${name}” was removed from your library.`,
+    differentTitle: 'This looks like a different file',
+    different: (picked: string, name: string) => `“${picked}” is not the same file as “${name}” (another size or content). Use it in its place anyway?`,
+    useIt: 'Use this file',
+    taken: 'That file is in your library already.',
+    wrongKind: 'A song can only be replaced by a song, and a video by a video.',
+    failed: (reason: string) => `This could not be done: ${reason}`,
+    /** Settings → Library, on a folder that can't be found. */
+    findFolder: (folder: string) => `Find ${folder}…`,
+    findFolderTitle: (folder: string) => `Where is ${folder} now?`,
+    folderFound: (folder: string) => `${folder} is back. Checking it for changes.`,
+  },
+  /** The player's queue of songs (the import's queue is `queue`). */
+  playQueue: {
+    /** In a song's or an album's menu. */
+    playNext: 'Play next',
+    add: 'Add to queue',
+    next: (n: number) => (n === 1 ? 'Plays next.' : `${n.toLocaleString()} songs play next.`),
+    added: (n: number) => (n === 1 ? 'Added to the queue.' : `${n.toLocaleString()} songs added to the queue.`),
+    already: 'Already in the queue.',
+    playing: 'This song is playing now.',
+  },
   videos: {
     allSeries: 'All series',
     allMovies: 'All films',
@@ -276,9 +396,17 @@ export const strings = {
     /** How much of a video is left, on its tile or row: "12 min left". */
     left: (time: string) => `${time} left`,
     watched: 'Watched',
+    /** A rating read out: "IMDb rating 7.8 out of 10". */
+    ratingLabel: (source: string | null | undefined, value: string) => `${source ? `${source} rating` : 'Rating'} ${value} out of 10`,
     season: (n: number | null) => (n == null ? 'Episodes' : n === 0 ? 'Specials' : `Season ${n}`),
     seasons: (n: number) => (n === 1 ? '1 season' : `${n} seasons`),
     seasonLabel: 'Season',
+    /** The two ways a season's episodes are shown, on a series' page. */
+    episodeViews: 'How episodes are shown',
+    viewList: 'As a list',
+    viewRow: 'As a row of pictures',
+    /** An episode card's first line, over its own name. */
+    episodeNumber: (episode: number | null) => (episode != null ? `Episode ${episode}` : 'Episode'),
     /** An episode row: its number, then its own title when the file name gives one. */
     episodeRow: (episode: number | null, title: string | null) =>
       [episode != null ? `Episode ${episode}` : 'Episode', title].filter(Boolean).join(' · '),

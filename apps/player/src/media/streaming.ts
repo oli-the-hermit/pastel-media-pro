@@ -84,7 +84,8 @@ export function seriesProgress(series: LibSeries, history: History): number {
  * end, starts at its first episode.
  */
 export function nextEpisode(series: LibSeries, history: History): LibVideo | null {
-  const episodes = episodesOf(series);
+  // An episode whose file can't be found is never the one to go on with.
+  const episodes = episodesOf(series).filter((e) => !e.missing);
   if (episodes.length === 0) return null;
   const playedAt = (e: LibVideo) => history.get(e.path)?.lastPlayedAt ?? -1;
   let last = -1;
@@ -181,7 +182,13 @@ export interface Home {
 }
 
 /** What Home shows, from the shelves and what was watched. */
-export function buildHome(shelves: Shelves, history: History): Home {
+export function buildHome(all: Shelves, history: History): Home {
+  // Home only offers what can be played: files that can't be found stay on their own shelves, marked.
+  const shelves: Shelves = {
+    films: all.films.filter((v) => !v.missing),
+    clips: all.clips.filter((v) => !v.missing),
+    series: all.series.map((s) => ({ ...s, episodes: s.episodes.filter((e) => !e.missing) })).filter((s) => s.episodes.length > 0),
+  };
   const film = (reason: HomePick['reason']) => (v: LibVideo): HomePick => ({ id: v.id, reason, video: v });
   const show = (reason: HomePick['reason']) => (s: LibSeries): HomePick | null => {
     const video = nextEpisode(s, history);

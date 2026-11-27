@@ -137,6 +137,16 @@ pub fn details(video: &Path, lone_in_folder: bool) -> Option<Details> {
         .or_else(|| read_text(&dir.join(format!("{stem}.json"))).and_then(|t| parse_sidecar(&t)))
 }
 
+/// A series as a whole, from Kodi's `tvshow.nfo` in the show's folder.
+pub fn show_details(show_dir: &Path) -> Option<Details> {
+    let file = show_dir.join("tvshow.nfo");
+    let meta = std::fs::metadata(&file).ok()?;
+    if !meta.is_file() || meta.len() > 1024 * 1024 {
+        return None;
+    }
+    parse_nfo(&String::from_utf8_lossy(&std::fs::read(&file).ok()?))
+}
+
 /// Picture files beside a video, Kodi's names first. A folder-wide name (`poster.jpg`, `folder.jpg`) counts only for a
 /// film alone in its folder, or for an episode from its show's folder: a folder of loose films shares no poster.
 #[derive(Debug, Default, PartialEq)]

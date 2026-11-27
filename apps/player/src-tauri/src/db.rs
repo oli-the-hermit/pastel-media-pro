@@ -11,6 +11,10 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_library.sql"),
     include_str!("../migrations/002_history.sql"),
     include_str!("../migrations/003_playlists.sql"),
+    include_str!("../migrations/004_pictures.sql"),
+    include_str!("../migrations/005_settings.sql"),
+    include_str!("../migrations/006_online.sql"),
+    include_str!("../migrations/007_album_art.sql"),
 ];
 
 /// Brings a database up to the latest version.
@@ -66,6 +70,13 @@ impl Db {
     /// For tests: an in-memory database.
     pub fn in_memory() -> Db {
         Db { conn: Mutex::new(Some(memory())), ..Default::default() }
+    }
+
+    /// A second connection to the same database, for work that waits on something slow (the internet) and must not
+    /// keep the pages from the library meanwhile. SQLite's WAL lets it read and write beside the app's own.
+    pub fn another(&self) -> Result<Connection, String> {
+        let path = self.path.lock().unwrap().clone().ok_or("the library has no data folder")?;
+        open(&path).map_err(|e| format!("the library database could not be opened: {e}"))
     }
 
     /// The connection, opened on the first call.
@@ -127,7 +138,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        for t in ["files", "images", "import_items", "import_jobs", "metadata", "overrides", "place_filters", "places", "skipped", "tracks", "videos"] {
+        for t in ["album_art", "app_settings", "files", "images", "import_items", "import_jobs", "lookups", "metadata", "overrides", "place_filters", "places", "shows", "skipped", "tracks", "videos"] {
             assert!(tables.iter().any(|x| x == t), "missing table {t}");
         }
     }
