@@ -248,6 +248,16 @@ export const strings = {
     emptyPlaylist: 'No songs yet. Search above to add some, or use “Add to playlist” on a song or an album in Music.',
     failed: (reason: string) => `This could not be saved: ${reason}`,
   },
+  /** The player's queue of songs (the import's queue is `queue`). */
+  playQueue: {
+    /** In a song's or an album's menu. */
+    playNext: 'Play next',
+    add: 'Add to queue',
+    next: (n: number) => (n === 1 ? 'Plays next.' : `${n.toLocaleString()} songs play next.`),
+    added: (n: number) => (n === 1 ? 'Added to the queue.' : `${n.toLocaleString()} songs added to the queue.`),
+    already: 'Already in the queue.',
+    playing: 'This song is playing now.',
+  },
   videos: {
     allSeries: 'All series',
     allMovies: 'All films',

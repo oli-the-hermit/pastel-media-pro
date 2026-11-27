@@ -48,6 +48,18 @@ export interface Playback {
   playOpened: (items: Opened[]) => void;
   next: () => void;
   previous: () => void;
+  // The queue, edited while it plays. The song that is playing keeps playing and keeps its place; a song is in the
+  // queue once, so one that is already there moves instead of being added again.
+  /** Moves a song to where another one is (the queue's drag and Alt+arrows). */
+  moveInQueue: (sourceId: string, targetId: string) => void;
+  /** Takes a song out of the queue; not the one that is playing. */
+  removeFromQueue: (id: string) => void;
+  /** Takes out everything after the song that is playing. */
+  clearUpNext: () => void;
+  /** Puts songs right after the one that is playing; with nothing playing, plays them. How many went in. */
+  playNext: (tracks: LibTrack[]) => number;
+  /** Puts songs at the end of the queue; with nothing playing, plays them. How many went in. */
+  addToQueue: (tracks: LibTrack[]) => number;
   /** Stops and leaves the video, if one is playing. */
   stop: () => void;
   clearError: () => void;
@@ -221,6 +233,61 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
     [queue, index, load],
   );
 
+  // ── The queue, edited while it plays ──
+  // Every change keeps the playing song where the index says it is.
+  const requeue = useCallback(
+    (change: (songs: LibTrack[], now: LibTrack) => LibTrack[]) => {
+      const now = index >= 0 ? queue[index] : undefined;
+      if (!now || video) return false;
+      const songs = change(queue, now);
+      setQueue(songs);
+      setIndex(songs.findIndex((t) => t.id === now.id));
+      return true;
+    },
+    [queue, index, video],
+  );
+  const moveInQueue = useCallback(
+    (sourceId: string, targetId: string) => {
+      requeue((songs) => {
+        const from = songs.findIndex((t) => t.id === sourceId);
+        const to = songs.findIndex((t) => t.id === targetId);
+        if (from < 0 || to < 0 || from === to) return songs;
+        const out = [...songs];
+        out.splice(to, 0, ...out.splice(from, 1));
+        return out;
+      });
+    },
+    [requeue],
+  );
+  const removeFromQueue = useCallback((id: string) => void requeue((songs, now) => (id === now.id ? songs : songs.filter((t) => t.id !== id))), [requeue]);
+  const clearUpNext = useCallback(() => void requeue((songs, now) => songs.slice(0, songs.findIndex((t) => t.id === now.id) + 1)), [requeue]);
+  /** Songs go in after the playing one (`next`) or at the end. The ones that can't be played stay out. */
+  const enqueue = useCallback(
+    (tracks: LibTrack[], next: boolean) => {
+      const wanted = tracks.filter((t, i) => !t.unplayable && tracks.findIndex((x) => x.id === t.id) === i);
+      if (wanted.length === 0) return 0;
+      let added = 0;
+      const queued = requeue((songs, now) => {
+        const at = songs.findIndex((t) => t.id === now.id);
+        // At the end, a song that already waits keeps its turn; played ones come back. Next, the asked songs come first.
+        const waiting = new Set(next ? [] : songs.slice(at + 1).map((t) => t.id));
+        const add = wanted.filter((t) => t.id !== now.id && !waiting.has(t.id));
+        added = add.length;
+        const ids = new Set(add.map((t) => t.id));
+        const rest = songs.filter((t) => !ids.has(t.id));
+        const place = next ? rest.findIndex((t) => t.id === now.id) + 1 : rest.length;
+        return [...rest.slice(0, place), ...add, ...rest.slice(place)];
+      });
+      if (queued) return added;
+      // Nothing plays (or a video does): the songs are the queue.
+      playTracks(wanted, 0);
+      return wanted.length;
+    },
+    [requeue, playTracks],
+  );
+  const playNext = useCallback((tracks: LibTrack[]) => enqueue(tracks, true), [enqueue]);
+  const addToQueue = useCallback((tracks: LibTrack[]) => enqueue(tracks, false), [enqueue]);
+
   // A video left part-way picks up there by itself; its page offers "Start over".
   const asked = useRef(0);
   const playVideo = useCallback(
@@ -380,13 +447,21 @@ export function PlaybackProvider({ children, greet = true }: { children: React.R
       playOpened,
       next: () => step(1),
       previous: () => step(-1),
+      moveInQueue,
+      removeFromQueue,
+      clearUpNext,
+      playNext,
+      addToQueue,
       stop,
       clearError: () => setError(null),
       clearSkipped: () => setSkipped(null),
       clearFailure: () => setFailure(null),
       setVideoBox,
     }),
-    [shownMedia, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop],
+    [
+      shownMedia, queue, index, video, pictureFor, error, skipped, failure, playTracks, playVideo, playOpened, step, stop,
+      moveInQueue, removeFromQueue, clearUpNext, playNext, addToQueue,
+    ],
   );
   const shown = !!video && !!box;
   return (

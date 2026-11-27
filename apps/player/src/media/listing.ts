@@ -42,6 +42,16 @@ export function matcher(query: string): ((text: string) => boolean) | null {
   };
 }
 
+/** The same items in a random order (Shuffle). */
+export function shuffled<T>(items: readonly T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 /** A few of a search's finds for its list of suggestions: the names that start with what was typed first. */
 export function firstFew<T>(items: T[], query: string, name: (x: T) => string, few: number): T[] {
   const q = fold(query);

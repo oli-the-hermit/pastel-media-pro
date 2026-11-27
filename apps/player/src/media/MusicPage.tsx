@@ -6,6 +6,7 @@ import {
 import { strings } from '../strings';
 import { useHistory } from './history';
 import { AddButtons } from './LibraryFolders';
+import { shuffled } from './listing';
 import { toAlbum, toTrack, useCover, type LibTrack, type Library } from './library';
 import {
   MUSIC_SORTS, MUSIC_VIEWS, asLibAlbum, buildMusic, searchMusic, sortAlbums, sortArtists, sortSongs, suggestMusic,
@@ -13,6 +14,7 @@ import {
 } from './music';
 import { usePlayback } from './playback';
 import { useAddToPlaylist } from './PlaylistActions';
+import { useQueueActions } from './QueueActions';
 import { useRemembered } from './remember';
 import { SortMenu } from './SortMenu';
 
@@ -72,7 +74,8 @@ function AlbumsGrid({ albums, onOpen }: { albums: AlbumEntry[]; onOpen: (id: str
 function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
   const playback = usePlayback();
   const addTo = useAddToPlaylist();
-  const paths = useMemo(() => new Map(songs.map((t) => [t.id, t.path])), [songs]);
+  const queueThem = useQueueActions();
+  const byId = useMemo(() => new Map(songs.map((t) => [t.id, t])), [songs]);
   const [shown, sentinel] = useShown(songs.length, songs);
   const tracks = useMemo(
     () =>
@@ -96,7 +99,10 @@ function SongsList({ songs, label }: { songs: LibTrack[]; label: string }) {
           else playback.playTracks(songs, songs.findIndex((x) => x.id === t.id));
         }}
         onPause={playback.engine.pause}
-        rowActions={(t) => addTo([paths.get(t.id) ?? ''].filter(Boolean))}
+        rowActions={(t) => {
+          const song = byId.get(t.id);
+          return song ? [...queueThem([song]), ...addTo([song.path])] : [];
+        }}
       />
       {shown < songs.length ? <div ref={sentinel} className="mp-songs-more" aria-hidden="true" /> : undefined}
     </div>
@@ -107,6 +113,7 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
   const cover = useCover(album.coverId);
   const playback = usePlayback();
   const addTo = useAddToPlaylist();
+  const queueThem = useQueueActions();
   const tracks = album.tracks;
   const view = useMemo(
     () => toAlbum({ ...asLibAlbum(album), artist: album.various ? strings.music.variousArtists : album.artist }, tracks, cover),
@@ -132,21 +139,15 @@ function OpenAlbum({ album, backLabel, onBack }: { album: AlbumEntry; backLabel:
           else playback.playTracks(tracks, i);
         }}
         onPause={playback.engine.pause}
-        actions={addTo(tracks.map((t) => t.path))}
-        rowActions={(t) => addTo(tracks.filter((x) => x.id === t.id).map((x) => x.path))}
+        actions={[...queueThem(tracks), ...addTo(tracks.map((t) => t.path))]}
+        rowActions={(t) => {
+          const song = tracks.find((x) => x.id === t.id);
+          return song ? [...queueThem([song]), ...addTo([song.path])] : [];
+        }}
       />
     </div>
   );
 }
-
-const shuffled = <T,>(items: T[]): T[] => {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-};
 
 /** An artist's page: who it is, Play and Shuffle, their albums, then their songs that have no album. */
 function OpenArtist({ artist, onOpenAlbum, onBack }: { artist: ArtistEntry; onOpenAlbum: (id: string) => void; onBack: () => void }) {
