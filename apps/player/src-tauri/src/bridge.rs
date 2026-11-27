@@ -113,7 +113,7 @@ fn to_value<T: serde::Serialize>(v: T) -> Result<Value, String> {
 fn dispatch(app: &AppHandle, queue: &Arc<Queue>, cmd: &str, args: &Value) -> Result<Value, String> {
     match cmd {
         "library_get" => to_value(block(library::library_get(app.clone()))?),
-        "library_cover" => to_value(block(library::library_cover(app.state(), arg(args, "albumId")?))?),
+        "library_cover" => to_value(block(library::library_cover(app.clone(), app.state(), arg(args, "albumId")?))?),
         "library_image" => to_value(block(library::library_image(app.clone(), arg(args, "hash")?))?),
         "history_record" => to_value(block(crate::history::history_record(
             app.clone(),
@@ -165,6 +165,7 @@ fn dispatch(app: &AppHandle, queue: &Arc<Queue>, cmd: &str, args: &Value) -> Res
         "cache_info" => to_value(crate::cache::cache_info(app.clone())?),
         "cache_set_cap" => to_value(crate::cache::cache_set_cap(app.clone(), arg(args, "mb")?)?),
         "cache_clear" => to_value(crate::cache::cache_clear(app.clone())?),
+        "online_set_album_covers" => to_value(block(crate::musicbrainz::online_set_album_covers(app.clone(), arg(args, "on")?))?),
         "online_status" => to_value(block(crate::online_work::online_status(app.clone()))?),
         "online_set_key" => to_value(block(crate::online_work::online_set_key(app.clone(), arg(args, "service")?, arg(args, "key")?))?),
         "online_set_place" => to_value(block(crate::online_work::online_set_place(app.clone(), arg(args, "placeId")?, arg(args, "enabled")?))?),

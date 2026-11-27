@@ -224,6 +224,23 @@ pub fn refresh_places(app: &AppHandle) {
     *app.state::<LibraryState>().folders.lock().unwrap() = places;
 }
 
+/// An album of the library in memory: its artist ("" for a compilation) and title.
+pub fn album_named(app: &AppHandle, album_id: &str) -> Option<(String, String)> {
+    let state = app.state::<LibraryState>();
+    let lib = state.library.lock().unwrap();
+    lib.as_ref()?.albums.iter().find(|a| a.id == album_id).map(|a| (a.artist.clone(), a.title.clone()))
+}
+
+/// An album's cover is asked for again the next time a page wants it (one was found online).
+pub fn forget_cover(app: &AppHandle, album_id: &str) {
+    app.state::<LibraryState>().covers.lock().unwrap().remove(album_id);
+}
+
+/// Every album that had no cover is asked again the next time a page wants it.
+pub fn forget_missing_covers(app: &AppHandle) {
+    app.state::<LibraryState>().covers.lock().unwrap().retain(|_, cover| cover.is_some());
+}
+
 /// A series' episodes as the library in memory has them (file id, season, number), by the series' key.
 pub fn episodes_of(app: &AppHandle, key: &str) -> Vec<(i64, u32, u32)> {
     let state = app.state::<LibraryState>();
@@ -775,6 +792,16 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let (mut lib, sources) = assemble(roots, audio, videos);
     describe_series(conn, &mut lib.series)?;
+    // An album with no year in its tags takes the one found online with its cover.
+    if lib.albums.iter().any(|a| a.year.is_none()) {
+        let years: HashMap<String, u32> = conn
+            .prepare("SELECT key, year FROM album_art WHERE year IS NOT NULL")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for a in lib.albums.iter_mut().filter(|a| a.year.is_none()) {
+            a.year = years.get(&crate::musicbrainz::album_key(&a.artist, &a.title)).copied();
+        }
+    }
     lib.scan_ms = started.elapsed().as_millis() as u64;
     Ok((lib, sources))
 }
@@ -889,14 +916,22 @@ pub fn cover_thumbnail(files: &[PathBuf]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// An album's cover as a small JPEG data URL (256 px), or nothing. Made once per album.
+/// An album's cover as a small JPEG data URL (256 px), or nothing. Made once per album: from its files or folder,
+/// or else the one found online before (`musicbrainz.rs`; an album with neither may be looked up there, when the
+/// person switched that on).
 #[tauri::command]
-pub async fn library_cover(state: tauri::State<'_, LibraryState>, album_id: String) -> Result<Option<String>, String> {
+pub async fn library_cover(app: AppHandle, state: tauri::State<'_, LibraryState>, album_id: String) -> Result<Option<String>, String> {
     if let Some(c) = state.covers.lock().unwrap().get(&album_id) {
         return Ok(c.clone());
     }
     let files = state.cover_sources.lock().unwrap().get(&album_id).cloned().unwrap_or_default();
-    let url = cover_url(files).await?;
+    let url = match cover_url(files).await? {
+        Some(own) => Some(own),
+        None => {
+            let (app, id) = (app.clone(), album_id.clone());
+            tauri::async_runtime::spawn_blocking(move || crate::musicbrainz::cover_for(&app, &id)).await.map_err(|e| e.to_string())?
+        }
+    };
     state.covers.lock().unwrap().insert(album_id, url.clone());
     Ok(url)
 }

@@ -297,6 +297,9 @@ export const strings = {
       'pt-PT': 'Portuguese (Portugal)',
       'ja-JP': 'Japanese',
     } as Record<string, string>,
+    albumCovers: 'Look for missing album covers',
+    albumCoversHint:
+      'For albums with no cover in their files or folder, as you browse them. It asks MusicBrainz and the Cover Art Archive, with no key, and sends only the artist and the album’s name.',
     foldersLabel: 'Folders to look up',
     foldersHint: 'Switch a folder off to keep its names to yourself (home videos, for one).',
     browserOnly: 'The desktop app looks titles up.',

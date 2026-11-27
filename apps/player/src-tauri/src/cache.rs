@@ -47,7 +47,8 @@ const IN_USE: &str = "SELECT poster FROM videos WHERE poster IS NOT NULL
      UNION SELECT backdrop FROM videos WHERE backdrop IS NOT NULL
      UNION SELECT still FROM videos WHERE still IS NOT NULL
      UNION SELECT poster FROM shows WHERE poster IS NOT NULL
-     UNION SELECT backdrop FROM shows WHERE backdrop IS NOT NULL";
+     UNION SELECT backdrop FROM shows WHERE backdrop IS NOT NULL
+     UNION SELECT cover FROM album_art WHERE cover IS NOT NULL";
 
 /// Removes the pictures nothing points at any more; how many.
 pub fn sweep(conn: &Connection, cache: &Path) -> usize {
@@ -96,6 +97,7 @@ pub fn clear(conn: &Connection, cache: &Path) -> usize {
          UPDATE videos SET still = NULL WHERE still IN ({AGAIN});
          UPDATE shows SET poster = NULL WHERE poster IN ({AGAIN});
          UPDATE shows SET backdrop = NULL WHERE backdrop IN ({AGAIN});
+         DELETE FROM album_art WHERE cover IN ({AGAIN});
          UPDATE videos SET frames_tried = 1;
          DELETE FROM images WHERE origin <> 'own';"
     ));

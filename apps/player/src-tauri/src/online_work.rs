@@ -257,6 +257,8 @@ pub struct Status {
     pub waiting: u64,
     /// "key" (the key was refused) or "offline", when lookups stopped.
     pub trouble: Option<String>,
+    /// Covers of albums that have none are looked for at MusicBrainz (no key needed).
+    pub album_covers: bool,
 }
 
 fn status(app: &AppHandle) -> Result<Status, String> {
@@ -281,6 +283,7 @@ fn status(app: &AppHandle) -> Result<Status, String> {
         unmatched: count(r#"["none"]"#),
         waiting,
         trouble,
+        album_covers: online::setting(&conn, crate::musicbrainz::SETTING).as_deref() == Some("1"),
     })
 }
 

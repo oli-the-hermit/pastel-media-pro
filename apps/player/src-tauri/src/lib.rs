@@ -14,6 +14,7 @@ pub mod import;
 pub mod library;
 pub mod lookup;
 pub mod matching;
+pub mod musicbrainz;
 pub mod online;
 pub mod online_work;
 mod open;
@@ -39,6 +40,7 @@ pub fn run() {
         .manage(open::OpenState::default())
         .manage(frames::Frames::default())
         .manage(online_work::Lookups::default())
+        .manage(musicbrainz::Covers::default())
         .setup(|app| {
             // Where library.db lives; it is opened on the library's first use, not now (D16).
             if let Ok(dir) = app.path().app_data_dir() {
@@ -96,6 +98,7 @@ pub fn run() {
             online_work::online_lookup_now,
             online_work::online_search,
             online_work::online_set_match,
+            musicbrainz::online_set_album_covers,
             open::open_launched,
             open::open_take,
             open::open_pick,

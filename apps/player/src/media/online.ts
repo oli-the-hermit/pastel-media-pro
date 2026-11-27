@@ -24,6 +24,8 @@ export interface OnlineStatus {
   waiting: number;
   /** Why lookups stopped: the key was refused, or there is no connection. */
   trouble: 'key' | 'offline' | null;
+  /** Covers of albums that have none are looked for at MusicBrainz (no key needed). */
+  albumCovers: boolean;
 }
 
 /** One of TMDB's answers to a search. */
@@ -78,6 +80,7 @@ export const setKey = (service: Service, key: string | null) => invoke<OnlineSta
 export const setPlace = (placeId: number, enabled: boolean) => invoke<OnlineStatus>('online_set_place', { placeId, enabled }).then(keep);
 export const setLanguage = (language: string) => invoke<OnlineStatus>('online_set_language', { language }).then(keep);
 export const lookUpNow = () => invoke<OnlineStatus>('online_lookup_now').then(keep);
+export const setAlbumCovers = (on: boolean) => invoke<boolean>('online_set_album_covers', { on }).then(() => refreshOnline());
 
 export const searchTitles = (kind: TitleKind, query: string, year?: number | null) => invoke<Candidate[]>('online_search', { kind, query, year: year ?? null });
 

@@ -3,7 +3,7 @@ import { Button, EmptyState, Field, IconRefresh, PasswordField, Select, Switch }
 import { isDesktop } from '@pastel-studio/desktop';
 import { useNotify } from '../shell/notify';
 import { strings } from '../strings';
-import { lookUpNow, refreshOnline, setKey, setLanguage, setPlace, useOnline, type OnlineStatus, type Service } from './online';
+import { lookUpNow, refreshOnline, setAlbumCovers, setKey, setLanguage, setPlace, useOnline, type OnlineStatus, type Service } from './online';
 
 const LANGUAGES = Object.entries(strings.online.languages).map(([value, label]) => ({ value, label }));
 
@@ -117,6 +117,12 @@ export function OnlineSettings() {
           <KeyField service="omdb" saved={status.omdbKey} />
         </>
       ) : undefined}
+      <Switch
+        label={strings.online.albumCovers}
+        hint={strings.online.albumCoversHint}
+        checked={status.albumCovers}
+        onChange={(on) => void setAlbumCovers(on).catch(failed)}
+      />
     </div>
   );
 }
