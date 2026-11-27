@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
 #[cfg(windows)]
-mod mpv {
+pub(crate) mod mpv {
     use libloading::Library;
     use std::ffi::{c_char, c_int, c_void, CStr, CString};
 
@@ -28,6 +28,7 @@ mod mpv {
         /// The app's window: the player.
         Window(isize),
         /// Nowhere, and no sound either: the tests.
+        #[cfg_attr(not(test), allow(dead_code))]
         Nothing,
         /// One JPEG per frame shown, in this folder, with no sound: taking a frame out of a video (`frames.rs`).
         Images(&'a std::path::Path),
@@ -125,7 +126,8 @@ mod mpv {
                 if matches!(output, Output::Images(_)) {
                     // One frame of each file, decoded in software (a frame on the graphics card can't be written
                     // out), from the nearest key frame (any frame near the asked moment will do), then the file ends.
-                    for (k, v) in [("frames", "1"), ("hwdec", "no"), ("hr-seek", "no"), ("keep-open", "no"), ("aid", "no"), ("sid", "no")] {
+                    // Two decoding threads: it works behind everything else.
+                    for (k, v) in [("frames", "1"), ("hwdec", "no"), ("hr-seek", "no"), ("keep-open", "no"), ("aid", "no"), ("sid", "no"), ("vd-lavc-threads", "2")] {
                         opt(k, v);
                     }
                 }
@@ -317,6 +319,13 @@ fn dll_candidates(app: &AppHandle) -> Vec<PathBuf> {
         list.push(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../lib/libmpv-2.dll")));
     }
     list
+}
+
+/// A second engine that writes frames of videos into `dir` as pictures (`frames.rs`); the player's is untouched.
+#[cfg(windows)]
+pub(crate) fn frame_engine(app: &AppHandle, dir: &std::path::Path) -> Result<mpv::Mpv, String> {
+    let dll = dll_candidates(app).into_iter().find(|p| p.is_file()).ok_or("libmpv-2.dll was not found")?;
+    mpv::Mpv::new(&dll, mpv::Output::Images(dir))
 }
 
 #[cfg(windows)]

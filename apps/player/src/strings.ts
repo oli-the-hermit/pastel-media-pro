@@ -102,6 +102,7 @@ export const strings = {
     tabs: {
       general: { label: 'General' },
       library: { label: 'Library' },
+      storage: { label: 'Storage' },
       playback: { label: 'Playback', empty: 'How music and videos play will be set here.' },
       subtitles: { label: 'Subtitles', empty: 'How subtitles look and which languages come first will be set here.' },
       transcription: { label: 'Transcription', empty: 'The speech models and where they are kept will be set here.' },
@@ -247,6 +248,20 @@ export const strings = {
     addSongs: 'Add songs: search your library',
     emptyPlaylist: 'No songs yet. Search above to add some, or use “Add to playlist” on a song or an album in Music.',
     failed: (reason: string) => `This could not be saved: ${reason}`,
+  },
+  /** Settings → Storage: the pictures the app keeps. */
+  storage: {
+    picturesLabel: 'Pictures kept on this computer',
+    picturesHint:
+      'Backdrops and episode pictures taken from your videos, and the art found beside them. They are made once and kept, so pages open fast. Your own files are never changed.',
+    use: (size: string, pictures: number) => `${size} in ${pictures === 1 ? '1 picture' : `${pictures.toLocaleString()} pictures`}`,
+    reading: 'Measuring…',
+    capLabel: 'Room they may take',
+    capHint: 'Over this, the oldest episode pictures go first. They come back when you open their series.',
+    clear: 'Clear cache',
+    cleared: 'The cache was cleared. Pictures are made again for what you open.',
+    browserOnly: 'The desktop app keeps pictures on your computer.',
+    failed: (reason: string) => `This could not be done: ${reason}`,
   },
   /** A file of the library that isn't where the library has it. */
   missing: {

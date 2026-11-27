@@ -11,6 +11,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_library.sql"),
     include_str!("../migrations/002_history.sql"),
     include_str!("../migrations/003_playlists.sql"),
+    include_str!("../migrations/004_pictures.sql"),
+    include_str!("../migrations/005_settings.sql"),
 ];
 
 /// Brings a database up to the latest version.
@@ -127,7 +129,7 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        for t in ["files", "images", "import_items", "import_jobs", "metadata", "overrides", "place_filters", "places", "skipped", "tracks", "videos"] {
+        for t in ["app_settings", "files", "images", "import_items", "import_jobs", "metadata", "overrides", "place_filters", "places", "shows", "skipped", "tracks", "videos"] {
             assert!(tables.iter().any(|x| x == t), "missing table {t}");
         }
     }

@@ -253,6 +253,12 @@ body {
   color: var(--ps-warning);
 }
 
+/* Settings → Storage: how much the cache holds. */
+.mp-storage-use {
+  margin: 0;
+  color: var(--ps-text-1);
+}
+
 /* "Can't find this file": the dialog's name and old path, the line on a title page, an episode's row. */
 .mp-missing-name {
   margin: 0;

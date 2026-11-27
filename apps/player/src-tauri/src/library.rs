@@ -78,9 +78,14 @@ pub struct LibVideo {
     /// From a `.nfo` or a sidecar.
     pub overview: Option<String>,
     pub genres: Vec<String>,
-    /// Images (`library_image`), from the art beside the file.
+    /// Images (`library_image`): the art beside the file, or for a backdrop that has none, a frame of the video.
     pub poster: Option<String>,
     pub backdrop: Option<String>,
+    /// One frame of the video, small (`frames.rs`): an episode's picture.
+    pub still: Option<String>,
+    /// A frame was asked of this file already; not for the pages.
+    #[serde(skip)]
+    pub frames_tried: bool,
     /// When it joined the library, in seconds since 1970. For a file read without the database (the web version's
     /// test library): when it was last changed, which stands in for it.
     pub added_at: i64,
@@ -88,13 +93,25 @@ pub struct LibVideo {
     pub missing: bool,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LibSeries {
     pub id: String,
+    /// What its episodes are grouped under (`parse::series_key`): the same from one reading to the next, unlike `id`.
+    pub key: String,
     pub title: String,
     pub poster: Option<String>,
+    /// The art in its folder, or else a frame of one of its episodes (`frames.rs`).
+    pub backdrop: Option<String>,
+    /// From `tvshow.nfo` in its folder.
+    pub year: Option<u16>,
+    pub overview: Option<String>,
+    pub genres: Vec<String>,
+    pub rating: Option<f64>,
     pub episodes: Vec<LibVideo>,
+    /// A frame was asked for its backdrop already and gave none; not for the pages.
+    #[serde(skip)]
+    pub frame_tried: bool,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -196,6 +213,14 @@ pub fn refresh_places(app: &AppHandle) {
     let places: Vec<PathBuf> = crate::import::places(&conn).into_iter().map(|p| p.root).chain(root()).collect();
     drop(conn);
     *app.state::<LibraryState>().folders.lock().unwrap() = places;
+}
+
+/// Forgets the library built in memory but keeps the songs' covers: for a change that touches no file (a picture
+/// was made, a title was matched).
+pub fn forget_library(app: &AppHandle) {
+    let state = app.state::<LibraryState>();
+    state.generation.fetch_add(1, Ordering::SeqCst);
+    *state.library.lock().unwrap() = None;
 }
 
 /// Forgets the library built in memory: the next `library_get` reads the database again.
@@ -418,14 +443,16 @@ pub fn assemble(roots: Vec<String>, audio: Vec<(LibTrack, String)>, mut videos: 
         }
     }
     lib.movies.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()).then(a.year.cmp(&b.year)));
-    for (i, (_, mut show)) in series.into_iter().enumerate() {
+    for (i, (key, mut show)) in series.into_iter().enumerate() {
         show.episodes.sort_by(|a, b| (a.season.unwrap_or(0), a.episode.unwrap_or(0), &a.file_name).cmp(&(b.season.unwrap_or(0), b.episode.unwrap_or(0), &b.file_name)));
         let title = show.folder.unwrap_or_else(|| most_common(&show.titles));
         for e in &mut show.episodes {
             e.title = title.clone();
         }
         let poster = show.episodes.iter().find_map(|e| e.poster.clone());
-        lib.series.push(LibSeries { id: format!("s{i}"), title, poster, episodes: show.episodes });
+        // An episode's backdrop is the art of its show's folder.
+        let backdrop = show.episodes.iter().find_map(|e| e.backdrop.clone());
+        lib.series.push(LibSeries { id: format!("s{i}"), key, title, poster, backdrop, episodes: show.episodes, ..Default::default() });
     }
     (lib, sources)
 }
@@ -659,7 +686,7 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         .prepare(
             "SELECT f.id, f.path, o.kind, v.title, o.year, o.season,
                     o.episode, v.episode_title, v.show_folder, v.poster, v.backdrop, v.duration_ms, v.width, v.height,
-                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at, f.missing, f.place_id
+                    o.title, m.title, m.year, m.overview, m.genres, p.path, f.added_at, f.missing, f.place_id, v.still, v.frames_tried
              FROM videos v JOIN files f ON f.id = v.file_id
              LEFT JOIN places p ON p.id = f.place_id
              LEFT JOIN overrides o ON o.file_id = f.id
@@ -699,6 +726,8 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
                     path,
                     poster: r.get(9)?,
                     backdrop: r.get(10)?,
+                    still: r.get(23)?,
+                    frames_tried: r.get(24)?,
                     duration: r.get::<_, Option<i64>>(11)?.map(|d| d as f64 / 1000.0),
                     width: r.get(12)?,
                     height: r.get(13)?,
@@ -713,8 +742,41 @@ pub fn from_db(conn: &Connection) -> rusqlite::Result<(Library, HashMap<String, 
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let (mut lib, sources) = assemble(roots, audio, videos);
+    describe_series(conn, &mut lib.series)?;
     lib.scan_ms = started.elapsed().as_millis() as u64;
     Ok((lib, sources))
+}
+
+/// What is known of each series as a whole (`shows`): its facts from `tvshow.nfo`, and a backdrop when its folder
+/// has no art for one (a frame of an episode, `frames.rs`).
+fn describe_series(conn: &Connection, series: &mut [LibSeries]) -> rusqlite::Result<()> {
+    type Row = (String, String, Option<u16>, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>);
+    let rows: Vec<Row> = conn
+        .prepare("SELECT key, source, year, overview, genres, rating, poster, backdrop FROM shows")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    // The folder's own words and art first, then what was looked up, then a frame.
+    let rank = |source: &str| match source {
+        "nfo" => 0,
+        "frame" => 2,
+        _ => 1,
+    };
+    for s in series.iter_mut() {
+        let mut mine: Vec<&Row> = rows.iter().filter(|r| r.0 == s.key).collect();
+        mine.sort_by_key(|r| rank(&r.1));
+        for (_, source, year, overview, genres, rating, poster, backdrop) in mine {
+            s.year = s.year.or(*year);
+            s.overview = s.overview.take().or_else(|| overview.clone());
+            if s.genres.is_empty() {
+                s.genres = genres.as_deref().map(|g| g.split(", ").map(String::from).collect()).unwrap_or_default();
+            }
+            s.rating = s.rating.or(*rating);
+            s.poster = s.poster.take().or_else(|| poster.clone());
+            s.backdrop = s.backdrop.take().or_else(|| backdrop.clone());
+            s.frame_tried |= source == "frame";
+        }
+    }
+    Ok(())
 }
 
 /// The library, read from the database on the first call after a start or a change (a few milliseconds for a
@@ -745,6 +807,8 @@ pub async fn library_get(app: AppHandle) -> Result<Library, String> {
     if state.generation.load(Ordering::SeqCst) == generation {
         *state.cover_sources.lock().unwrap() = sources;
         *state.library.lock().unwrap() = Some(lib.clone());
+        // What it still lacks a picture for is made behind everything else, from the videos themselves.
+        crate::frames::after_library(&app, &lib);
     }
     Ok(lib)
 }

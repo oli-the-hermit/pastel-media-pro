@@ -2,9 +2,11 @@ use tauri::{DragDropEvent, Manager, WindowEvent};
 
 #[cfg(debug_assertions)]
 mod bridge;
+pub mod cache;
 pub mod db;
 mod engine;
 pub mod filters;
+pub mod frames;
 mod formats;
 pub mod history;
 pub mod playlists;
@@ -31,6 +33,7 @@ pub fn run() {
         .manage(db::Db::default())
         .manage(import::ImportState::default())
         .manage(open::OpenState::default())
+        .manage(frames::Frames::default())
         .setup(|app| {
             // Where library.db lives; it is opened on the library's first use, not now (D16).
             if let Ok(dir) = app.path().app_data_dir() {
@@ -77,6 +80,10 @@ pub fn run() {
             relink::file_relink,
             relink::file_forget,
             relink::place_relink,
+            frames::frames_want,
+            cache::cache_info,
+            cache::cache_set_cap,
+            cache::cache_clear,
             open::open_launched,
             open::open_take,
             open::open_pick,

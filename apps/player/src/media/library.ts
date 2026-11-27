@@ -56,9 +56,11 @@ export interface LibVideo {
   /** From a `.nfo` or a sidecar beside the file. */
   overview?: string | null;
   genres?: string[];
-  /** Images in the library's cache (`usePoster`), from the art beside the file. */
+  /** Images in the library's cache (`usePoster`): the art beside the file, or for a backdrop that has none, a frame of the video. */
   poster?: string | null;
   backdrop?: string | null;
+  /** One frame of the video, small: an episode's picture. Made by the desktop app, behind everything else. */
+  still?: string | null;
   /** When it joined the library, in seconds since 1970; 0 or absent for a file that isn't in it. */
   addedAt?: number;
   /** The file isn't where the library has it ("Can't find this file"). */
@@ -67,8 +69,17 @@ export interface LibVideo {
 
 export interface LibSeries {
   id: string;
+  /** What its episodes are grouped under: the same from one reading of the library to the next, unlike `id`. */
+  key?: string;
   title: string;
   poster?: string | null;
+  /** The art in its folder, or else a frame of one of its episodes. */
+  backdrop?: string | null;
+  /** From `tvshow.nfo` in its folder. */
+  year?: number | null;
+  overview?: string | null;
+  genres?: string[];
+  rating?: number | null;
   episodes: LibVideo[];
 }
 
