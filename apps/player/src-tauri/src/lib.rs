@@ -13,10 +13,12 @@ pub mod playlists;
 pub mod import;
 pub mod library;
 pub mod matching;
+pub mod online;
 mod open;
 pub mod parse;
 pub mod probe;
 pub mod relink;
+pub mod tmdb;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
