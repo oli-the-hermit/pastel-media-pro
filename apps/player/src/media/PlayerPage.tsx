@@ -9,9 +9,8 @@ import { useRemembered } from './remember';
 import { lastCover, saveLastCover } from './session';
 import { VideoView } from './VideoView';
 
-/** How many songs the queue beside the player lists after the one playing, and before it. */
-const UP_NEXT = 100;
-const PLAYED = 50;
+/** How many of the queue's songs, each way from the one playing, show their cover; the others show a plain mark. */
+const WITH_COVERS = 100;
 
 /**
  * The playing song as the design system's Track, with its album's cover when the library knows it, or, for a song
@@ -76,15 +75,21 @@ export function PlayerPage({ library, onOpenFiles, onLeaveVideo }: PlayerPagePro
   const track = useNowPlayingTrack(library);
   const [queueOpen, setQueueOpen] = useRemembered<boolean>('pastelmedia_queue_open', true, (v) => typeof v === 'boolean');
   const { queue, index } = playback;
-  const next = useMemo(() => queue.slice(index + 1, index + 1 + UP_NEXT), [queue, index]);
-  const before = useMemo(() => queue.slice(Math.max(0, index - PLAYED), Math.max(0, index)).reverse(), [queue, index]);
+  // The whole queue: the design system's PlayQueue draws only the rows near the screen once there are many.
+  const next = useMemo(() => queue.slice(index + 1), [queue, index]);
+  const before = useMemo(() => queue.slice(0, Math.max(0, index)).reverse(), [queue, index]);
   // Each row's cover is its album's.
   const albumOf = useMemo(() => {
     const of = new Map<string, string>();
     for (const a of library?.albums ?? []) for (const id of a.trackIds) of.set(id, a.id);
     return of;
   }, [library]);
-  const covers = useCovers(useMemo(() => [...new Set([...next, ...before].map((t) => albumOf.get(t.id) ?? '').filter(Boolean))], [next, before, albumOf]));
+  const covers = useCovers(
+    useMemo(
+      () => [...new Set([...next.slice(0, WITH_COVERS), ...before.slice(0, WITH_COVERS)].map((t) => albumOf.get(t.id) ?? '').filter(Boolean))],
+      [next, before, albumOf],
+    ),
+  );
   const upNext = useMemo(() => next.map((t) => toTrack(t, covers[albumOf.get(t.id) ?? ''])), [next, covers, albumOf]);
   const played = useMemo(() => before.map((t) => toTrack(t, covers[albumOf.get(t.id) ?? ''])), [before, covers, albumOf]);
   if (playback.video) return <VideoView onBack={onLeaveVideo} />;

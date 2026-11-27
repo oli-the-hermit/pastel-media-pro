@@ -466,10 +466,6 @@ body {
   border-radius: var(--ps-radius-3xl);
   background: var(--ps-surface-1);
 }
-.mp-songs-more {
-  height: var(--ps-space-24);
-}
-
 /* A dialog's form (a playlist's name and description): its fields, then its buttons. */
 .mp-form {
   display: flex;
